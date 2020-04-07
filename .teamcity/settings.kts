@@ -69,9 +69,8 @@ object BuildAndUpload : BuildType({
 
     steps {
         gradle {
-            tasks = "clean build"
+            tasks = "clean build bintrayUpload"
             buildFile = ""
-            gradleWrapperPath = ""
         }
     }
 })
