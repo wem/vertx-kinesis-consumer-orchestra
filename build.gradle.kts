@@ -1,8 +1,13 @@
+import com.jfrog.bintray.gradle.BintrayExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.util.*
+
 
 plugins {
     kotlin("jvm") version "1.3.71"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
+    id("com.jfrog.bintray") version "1.8.5"
+    `maven-publish`
 }
 
 repositories {
@@ -67,5 +72,60 @@ tasks {
         useJUnitPlatform()
         systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
         environment(Pair("AWS_CBOR_DISABLE", "true"), Pair("CBOR_ENABLED", "false"), Pair("aws.cborEnabled", "false"))
+    }
+}
+
+val groupId = "ch.sourcemotion.vertx"
+val artifactId = "vertx-kinesis-consumer-orchestra"
+val publicationName = "vertxKinesisConsumerOrchestra"
+
+val bintrayUser: String by lazy {
+    "${findProperty("bintray_user")}"
+}
+val bintrayApiKey: String by lazy {
+    "${findProperty("bintray_api_key")}"
+}
+
+bintray {
+    user = bintrayUser
+    key = bintrayApiKey
+    setPublications(publicationName)
+
+    pkg(closureOf<BintrayExtension.PackageConfig> {
+        repo = "maven"
+        name = artifactId
+        userOrg = "michel-werren"
+        vcsUrl = "https://gitlab.com/michel.werren/vertx-retry"
+        version(closureOf<BintrayExtension.VersionConfig> {
+            name = project.version.toString()
+            released = Date().toString()
+        })
+        setLicenses("MIT")
+    })
+}
+
+val sourcesJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("sources")
+    from(sourceSets.main.get().allSource)
+}
+
+publishing {
+    publications {
+        register(publicationName, MavenPublication::class.java) {
+            from(components["java"])
+            artifact(sourcesJar.get())
+            pom {
+                groupId = groupId
+                artifactId = artifactId
+                version = project.version.toString()
+                licenses {
+                    license {
+                        name.set("The MIT License")
+                        url.set("http://www.opensource.org/licenses/MIT")
+                        distribution.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                    }
+                }
+            }
+        }
     }
 }
