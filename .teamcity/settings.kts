@@ -67,6 +67,14 @@ object BuildAndUpload : BuildType({
         root(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
     }
 
+    steps {
+        gradle {
+            tasks = "clean build"
+            buildFile = ""
+            gradleWrapperPath = ""
+        }
+    }
+
     triggers {
         vcs {
         }
