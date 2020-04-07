@@ -28,7 +28,7 @@ internal class ConsumerDeploymentLock(
 ) {
     internal companion object : KLogging()
 
-    suspend inline fun doLocked(block: suspend () -> Unit) {
+    suspend inline fun doLocked(block: () -> Unit) {
         val deploymentKey = redisKeyFactory.createDeploymentLockKey()
         val keys = listOf(deploymentKey)
         val args = listOf(lockExpiration.toMillis().toString())
