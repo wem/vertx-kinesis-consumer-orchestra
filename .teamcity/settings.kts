@@ -74,11 +74,6 @@ object BuildAndUpload : BuildType({
             gradleWrapperPath = ""
         }
     }
-
-    triggers {
-        vcs {
-        }
-    }
 })
 
 object HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster : GitVcsRoot({
