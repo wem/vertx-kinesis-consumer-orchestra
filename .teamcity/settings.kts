@@ -32,7 +32,6 @@ project {
     vcsRoot(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
 
     buildType(Build)
-    buildType(Build_2)
 }
 
 object Build : BuildType({
@@ -52,19 +51,6 @@ object Build : BuildType({
                 includeClasses = "ch.sourcemotion.*"
             }
         }
-    }
-
-    triggers {
-        vcs {
-        }
-    }
-})
-
-object Build_2 : BuildType({
-    name = "Build"
-
-    vcs {
-        root(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
     }
 
     triggers {
