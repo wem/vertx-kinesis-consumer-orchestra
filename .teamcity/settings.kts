@@ -1,6 +1,7 @@
 import jetbrains.buildServer.configs.kotlin.v2019_2.*
 import jetbrains.buildServer.configs.kotlin.v2019_2.buildSteps.gradle
 import jetbrains.buildServer.configs.kotlin.v2019_2.triggers.vcs
+import jetbrains.buildServer.configs.kotlin.v2019_2.vcs.GitVcsRoot
 
 /*
 The settings script is an entry point for defining a TeamCity
@@ -28,7 +29,10 @@ version = "2019.2"
 
 project {
 
+    vcsRoot(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
+
     buildType(Build)
+    buildType(Build_2)
 }
 
 object Build : BuildType({
@@ -53,5 +57,27 @@ object Build : BuildType({
     triggers {
         vcs {
         }
+    }
+})
+
+object Build_2 : BuildType({
+    name = "Build"
+
+    vcs {
+        root(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
+    }
+
+    triggers {
+        vcs {
+        }
+    }
+})
+
+object HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster : GitVcsRoot({
+    name = "https://github.com/wem/vertx-kinesis-consumer-orchestra#refs/heads/master"
+    url = "https://github.com/wem/vertx-kinesis-consumer-orchestra"
+    authMethod = password {
+        userName = "wem"
+        password = "credentialsJSON:071f192b-1525-4b10-866a-99f15b39f864"
     }
 })
