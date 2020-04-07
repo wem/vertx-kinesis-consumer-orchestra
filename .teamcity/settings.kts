@@ -44,6 +44,9 @@ object Build : BuildType({
         gradle {
             tasks = "clean test"
             buildFile = ""
+            coverageEngine = idea {
+                includeClasses = "ch.sourcemotion.*"
+            }
         }
     }
 
