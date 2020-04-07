@@ -91,8 +91,6 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
 
             deployOrchestrationVerticle(vertx, LoadConfiguration.createDoAllShardsConfig())
 
-            val shards = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
-
             // We put the records with explicit hash key instead of partition key to ensure fair distribution between shards
             putRecordsExplicitHashKey(
                 recordBundleCount,

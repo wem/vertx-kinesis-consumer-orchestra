@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test
 internal class ReshardingEventFactoryTest : AbstractKinesisAndRedisTest() {
 
     @Test
-    internal fun split_shard(vertx: Vertx, testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun split_shard(testContext: VertxTestContext) = asyncTest(testContext) {
         val streamDescription = createAndGetStreamDescriptionWhenActive(1)
         val parentShard = streamDescription.shards().first()
 
@@ -35,7 +35,7 @@ internal class ReshardingEventFactoryTest : AbstractKinesisAndRedisTest() {
     }
 
     @Test
-    internal fun merge_shards(vertx: Vertx, testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun merge_shards(testContext: VertxTestContext) = asyncTest(testContext) {
 
         val streamDescription = createAndGetStreamDescriptionWhenActive(2)
         val parentShard = streamDescription.shards().first()
