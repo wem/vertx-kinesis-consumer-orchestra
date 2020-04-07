@@ -75,6 +75,8 @@ tasks {
     }
 }
 
+System.getProperty("version")?.let { version = it }
+
 val groupId = "ch.sourcemotion.vertx"
 val artifactId = "vertx-kinesis-consumer-orchestra"
 val publicationName = "vertxKinesisConsumerOrchestra"
