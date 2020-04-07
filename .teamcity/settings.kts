@@ -63,6 +63,10 @@ object Build : BuildType({
 object BuildAndUpload : BuildType({
     name = "Build and upload"
 
+    params {
+        text("system.version", "", label = "Build version", display = ParameterDisplay.PROMPT, allowEmpty = false)
+    }
+
     vcs {
         root(HttpsGithubComWemVertxKinesisConsumerOrchestraRefsHeadsMaster)
     }
