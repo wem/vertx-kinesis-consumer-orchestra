@@ -1,8 +1,8 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
-import io.kotlintest.matchers.types.shouldNotBeNull
-import io.kotlintest.shouldBe
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
 import io.vertx.redis.client.RedisAPI
 import org.junit.jupiter.api.BeforeEach

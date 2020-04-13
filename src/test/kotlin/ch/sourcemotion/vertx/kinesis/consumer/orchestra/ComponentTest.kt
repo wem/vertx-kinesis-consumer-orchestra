@@ -5,7 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeRes
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.SplitReshardingEvent
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import io.kotlintest.shouldBe
+import io.kotest.matchers.shouldBe
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
 import org.junit.jupiter.api.BeforeEach

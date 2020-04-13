@@ -10,10 +10,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFacto
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
-import io.kotlintest.matchers.collections.shouldHaveSize
-import io.kotlintest.shouldBe
-import io.reactiverse.awssdk.VertxSdkClient
-import io.vertx.core.Context
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.shouldBe
 import io.vertx.core.Vertx
 import io.vertx.junit5.VertxTestContext
 import io.vertx.redis.client.Redis
@@ -111,18 +109,6 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
         SharedData.shareInstance(vertx, kinesisAsyncClientFactory, KinesisAsyncClientFactory.SHARED_DATA_REF)
         return kinesisAsyncClientFactory
     }
-
-    private fun createLocalstackKinesisClient(
-        context: Context,
-        region: Region
-    ): KinesisAsyncClient = VertxSdkClient.withVertx(
-        KinesisAsyncClient.builder().region(
-            region
-        ).endpointOverride(
-            getKinesisEndpoint()
-                .toUri()
-        ).credentialsProvider(CREDENTIALS_PROVIDER), context
-    ).build()
 
     private fun createShardStatePersistenceFactory(): ShardStatePersistenceFactory {
         return ShardStatePersistenceFactory(

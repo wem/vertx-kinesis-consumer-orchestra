@@ -4,7 +4,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoo
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
-import io.kotlintest.matchers.boolean.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeTrue
 import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.redis.client.sendAwait

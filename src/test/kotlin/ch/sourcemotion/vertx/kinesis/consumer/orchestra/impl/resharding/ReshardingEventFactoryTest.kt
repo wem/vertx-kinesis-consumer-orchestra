@@ -4,10 +4,9 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import io.kotlintest.matchers.collections.shouldContainAll
-import io.kotlintest.matchers.types.shouldBeInstanceOf
-import io.kotlintest.shouldBe
-import io.vertx.core.Vertx
+import io.kotest.matchers.collections.shouldContainAll
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.vertx.junit5.VertxTestContext
 import org.junit.jupiter.api.Test
 

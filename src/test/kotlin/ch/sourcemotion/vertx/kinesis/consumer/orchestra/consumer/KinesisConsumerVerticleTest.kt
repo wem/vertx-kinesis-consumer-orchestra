@@ -15,11 +15,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReOrches
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import io.kotlintest.matchers.boolean.shouldBeFalse
-import io.kotlintest.matchers.collections.shouldContainAll
-import io.kotlintest.matchers.collections.shouldNotContain
-import io.kotlintest.matchers.types.shouldBeNull
-import io.kotlintest.shouldBe
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.collections.shouldContainAll
+import io.kotest.matchers.collections.shouldNotContain
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.DeliveryOptions

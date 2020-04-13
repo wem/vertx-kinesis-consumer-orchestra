@@ -7,8 +7,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestrationVertic
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import io.kotlintest.matchers.numerics.shouldBeBetween
-import io.kotlintest.shouldBe
+import io.kotest.matchers.ints.shouldBeBetween
+import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.Vertx
 import io.vertx.core.json.JsonArray

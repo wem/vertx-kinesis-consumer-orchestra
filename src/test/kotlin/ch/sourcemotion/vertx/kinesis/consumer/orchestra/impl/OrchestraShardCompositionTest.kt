@@ -5,9 +5,9 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractVertxTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.createShardMock
-import io.kotlintest.matchers.collections.shouldBeEmpty
-import io.kotlintest.matchers.collections.shouldContainExactly
-import io.kotlintest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.vertx.junit5.VertxTestContext
 import org.junit.jupiter.api.Test
 

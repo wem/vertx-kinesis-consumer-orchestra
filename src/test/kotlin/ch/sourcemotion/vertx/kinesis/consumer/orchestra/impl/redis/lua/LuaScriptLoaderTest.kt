@@ -1,7 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
-import io.kotlintest.matchers.string.shouldHaveLength
+import io.kotest.matchers.string.shouldHaveLength
 import io.vertx.junit5.VertxTestContext
 import io.vertx.redis.client.RedisAPI
 import org.junit.jupiter.api.Test
