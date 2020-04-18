@@ -6,9 +6,12 @@ import software.amazon.awssdk.services.kinesis.model.Record
 import java.time.Instant
 
 /**
- * Jsonfieable version of [Record]. This class is designed to be enable implementations of
+ * Jsonified version of [Record]. This class is designed to be enable implementations of
  * [ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle] to transfer AWS records
  * over the Vert.x event bus.
+ *
+ * Note: There is no predefined [io.vertx.core.eventbus.MessageCodec] for this class. The reason is to give more freedom
+ * to the user.
  */
 data class JsonRecord(
     val sequenceNumber: String,

@@ -6,7 +6,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.redis.client.RedisOptions
 
 /**
- * Basic options of [AbstractKinesisConsumerVerticle]. For internal use only in general.
+ * Basic options of [AbstractKinesisConsumerVerticle]. For internal use only, but if the user provides a configuration
+ * for it's own consumer verticle implementation via [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.consumerVerticleConfig],
+ * they will get merged. So both configurations must be able to ignore unknown properties as they are not aware of each other.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 internal class KinesisConsumerVerticleOptions(

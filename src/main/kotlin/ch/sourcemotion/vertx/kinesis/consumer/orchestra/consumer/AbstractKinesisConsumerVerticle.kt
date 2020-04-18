@@ -31,7 +31,8 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Verticle which should be implemented to receive records polled from Kinesis.
+ * Verticle which must be implemented to receive records polled from Kinesis.
+ *
  * Is configurable in orchestra options [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions#consumerVerticleClass]
  */
 abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {

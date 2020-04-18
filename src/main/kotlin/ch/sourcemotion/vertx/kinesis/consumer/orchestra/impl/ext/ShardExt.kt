@@ -13,9 +13,6 @@ fun Shard.isMergedChild() = parentShardId().isNotNullOrBlank() && adjacentParent
  */
 fun Shard.isSplitChild() = parentShardId().isNotNullOrBlank() && adjacentParentShardId().isNullOrBlank()
 
-/**
- * Provides type safe shard id getter to AWs shard class instances.
- */
 fun Shard.shardIdTyped() = ShardId(this.shardId())
 fun Shard.parentShardIdTyped() = this.parentShardId()?.let { ShardId(it) }
 fun Shard.adjacentParentShardIdTyped() = this.adjacentParentShardId()?.let { ShardId(it) }

@@ -7,7 +7,7 @@ import kotlinx.coroutines.launch
 import software.amazon.awssdk.services.kinesis.model.Record
 
 /**
- * Kotlin variant of the consumer verticle. [onRecords] function called within verticles context coroutine.
+ * Kotlin variant of the consumer verticle. [onRecords] function called within verticle context coroutine.
  *
  * Is configurable in orchestra options [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions#consumerVerticleClass]
  */
