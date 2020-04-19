@@ -37,11 +37,3 @@ fun CharSequence?.isNotNullOrBlank(): Boolean {
     }
     return this.isNullOrBlank().isFalse()
 }
-
-suspend fun <T> CompletableFuture<T>.awaitSuspending(): T {
-    return suspendCancellableCoroutine { cont ->
-        whenCompleteAsync { value, throwable ->
-            throwable?.let { cont.resumeWithException(it) } ?: cont.resume(value)
-        }
-    }
-}

@@ -34,7 +34,7 @@ internal class ComponentTest : AbstractKinesisAndRedisTest() {
     @Test
     internal fun consumer_some_records(testContext: VertxTestContext) =
         asyncTest(testContext, RECORD_COUNT) { checkpoint ->
-            sut = VertxKinesisOrchestra.createAwait(
+            sut = VertxKinesisOrchestra.create(
                 vertx,
                 VertxKinesisOrchestraOptions(
                     TEST_APPLICATION_NAME,
@@ -45,7 +45,7 @@ internal class ComponentTest : AbstractKinesisAndRedisTest() {
                     consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
                     kinesisEndpoint = getKinesisEndpoint()
                 )
-            )
+            ).startAwait()
 
             eventBus.consumer<JsonObject>(RECORD_FAN_OUT_ADDR) { msg ->
                 val fanoutMessage = msg.body().mapTo(FanoutMessage::class.java)

@@ -1,6 +1,8 @@
-package ch.sourcemotion.vertx.kinesis.consumer.orchestra.api
+package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.JsonRecord
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.toJsonRecord
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
 import io.vertx.core.json.JsonObject

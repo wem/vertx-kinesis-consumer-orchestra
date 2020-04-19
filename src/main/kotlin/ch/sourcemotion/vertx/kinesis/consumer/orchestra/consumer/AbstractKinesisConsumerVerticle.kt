@@ -2,9 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.KinesisConsumerException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.awaitSuspending
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingEventFactory
@@ -18,6 +16,7 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.RedisAPI
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -64,7 +63,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(CONSUMER_START_CMD_ADDR, this::onStartConsumerCmd)
-        logger.info { "Kinesis consumer verticle ready to get started" }
+        logger.debug { "Kinesis consumer verticle ready to get started" }
     }
 
     override suspend fun stop() {
@@ -108,7 +107,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     kinesisClient.getRecords {
                         it.shardIterator(shardIteratorToQuery.iter)
                         it.limit(options.recordsPerPollLimit)
-                    }.awaitSuspending()
+                    }.await()
                 }.onSuccess { recordsResponse ->
                     // We throttle as coroutine, so when the record processing will take longer than the configured
                     // interval, we can continue polling immediately afterwards.

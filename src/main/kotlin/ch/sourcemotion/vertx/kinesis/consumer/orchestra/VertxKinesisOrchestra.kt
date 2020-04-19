@@ -29,30 +29,14 @@ interface VertxKinesisOrchestra {
         @JvmStatic
         fun create(
             vertx: Vertx,
-            options: VertxKinesisOrchestraOptions,
-            handler: Handler<AsyncResult<VertxKinesisOrchestra>>
-        ) {
-            CoroutineScope(vertx.dispatcher()).launch {
-                createAwait(
-                    vertx,
-                    options
-                )
-            }.invokeOnCompletion {
-                it?.let { handler.handle(Future.failedFuture(it)) } ?: handler.handle(Future.succeededFuture())
-            }
-        }
-
-        /**
-         * Suspendable variant of [create]
-         */
-        suspend fun createAwait(vertx: Vertx, options: VertxKinesisOrchestraOptions): VertxKinesisOrchestra {
-            configureJacksonKotlin()
-            return VertxKinesisOrchestraImpl(vertx, options).apply { startOrchestration() }
-        }
-
-        private fun configureJacksonKotlin() {
-            DatabindCodec.mapper().registerKinesisOrchestraModules()
-            DatabindCodec.prettyMapper().registerKinesisOrchestraModules()
-        }
+            options: VertxKinesisOrchestraOptions
+        )  = VertxKinesisOrchestraImpl(vertx, options)
     }
+
+    fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>)
+
+    suspend fun startAwait() : VertxKinesisOrchestra
+
+    fun close(handler: Handler<AsyncResult<Unit>>)
+    suspend fun closeAwait()
 }

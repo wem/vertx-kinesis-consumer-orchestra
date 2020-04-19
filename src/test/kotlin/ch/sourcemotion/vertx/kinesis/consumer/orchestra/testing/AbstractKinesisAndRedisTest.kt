@@ -4,7 +4,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.awaitSuspending
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
@@ -16,6 +15,7 @@ import io.vertx.core.Vertx
 import io.vertx.junit5.VertxTestContext
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.RedisAPI
+import kotlinx.coroutines.future.await
 import mu.KLogging
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -36,9 +36,9 @@ import java.time.Duration
 internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
 
     companion object : KLogging() {
-        val CREDENTIALS_PROVIDER =
+        val CREDENTIALS_PROVIDER: StaticCredentialsProvider =
             StaticCredentialsProvider.create(AwsBasicCredentials.create("test-access-key", "test-secret-key"))
-        val REGION = Region.EU_WEST_1
+        val REGION: Region = Region.EU_WEST_1
         const val TEST_STREAM_NAME = "test-stream"
         const val TEST_APPLICATION_NAME = "test-application"
 
@@ -76,16 +76,16 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
      */
     @AfterEach
     internal fun cleanupKinesisStreams(testContext: VertxTestContext) = asyncTest(testContext) {
-        kinesisClient.listStreams().awaitSuspending().streamNames().forEach { streamName ->
+        kinesisClient.listStreams().await().streamNames().forEach { streamName ->
             kinesisClient.deleteStream { builder ->
                 builder.streamName(streamName)
-            }.awaitSuspending()
+            }.await()
         }
 
         // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
-        var streamsAfterDeletion = kinesisClient.listStreams().awaitSuspending()
+        var streamsAfterDeletion = kinesisClient.listStreams().await()
         while (streamsAfterDeletion.streamNames().isNotEmpty()) {
-            streamsAfterDeletion = kinesisClient.listStreams().awaitSuspending()
+            streamsAfterDeletion = kinesisClient.listStreams().await()
         }
         logger.info { "Kinesis streams deleted" }
     }
@@ -132,7 +132,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             }.toList()
             val putResponse = kinesisClient.putRecords {
                 it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
-            }.awaitSuspending()
+            }.await()
             logger.info { "Did put ${putRequestRecords.size} records" }
             putResponse.failedRecordCount().shouldBe(0)
         }
@@ -158,7 +158,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             }.toList()
             val putResponse = kinesisClient.putRecords {
                 it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
-            }.awaitSuspending()
+            }.await()
             logger.info { "Did put ${putRequestRecords.size} records" }
             putResponse.failedRecordCount().shouldBe(0)
         }
@@ -167,7 +167,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
     protected suspend fun createAndGetStreamDescriptionWhenActive(shardCount: Int): StreamDescription {
         kinesisClient.createStream {
             it.streamName(TEST_STREAM_NAME).shardCount(shardCount)
-        }.awaitSuspending()
+        }.await()
         return kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).also {
             logger.info { "Test Kinesis stream \"$TEST_STREAM_NAME\" with \"$shardCount\" shards created" }
         }
@@ -181,7 +181,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             val newStartingHashKey = startingHashKey.add(endingHashKey).divide(BigInteger("2")).toString()
             it.streamName(TEST_STREAM_NAME).shardToSplit(shardToSplit.shardId())
                 .newStartingHashKey(newStartingHashKey)
-        }.awaitSuspending()
+        }.await()
     }
 
     protected suspend fun mergeShards(parentShard: Shard, adjacentShard: Shard) {
@@ -190,6 +190,6 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             it.streamName(TEST_STREAM_NAME)
             it.shardToMerge(parentShard.shardId())
             it.adjacentShardToMerge(adjacentShard.shardId())
-        }.awaitSuspending()
+        }.await()
     }
 }

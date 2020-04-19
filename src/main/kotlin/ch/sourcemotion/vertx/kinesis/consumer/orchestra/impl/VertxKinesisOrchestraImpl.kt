@@ -5,13 +5,18 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestra
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.OrchestraCodecs
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesisOrchestraModules
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
-import io.vertx.core.DeploymentOptions
-import io.vertx.core.Vertx
+import io.vertx.core.*
 import io.vertx.core.json.JsonObject
+import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.core.undeployAwait
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 
 class VertxKinesisOrchestraImpl(
@@ -19,7 +24,21 @@ class VertxKinesisOrchestraImpl(
     private val options: VertxKinesisOrchestraOptions
 ) : VertxKinesisOrchestra {
 
-    suspend fun startOrchestration() {
+    private var running = false
+    private lateinit var deploymentId: String
+
+    override fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>) {
+        CoroutineScope(vertx.dispatcher()).launch {
+            startAwait()
+        }.invokeOnCompletion { throwable ->
+            throwable?.let { handler.handle(Future.failedFuture(it)) } ?: handler.handle(Future.succeededFuture())
+        }
+    }
+
+    override suspend fun startAwait() : VertxKinesisOrchestra {
+        DatabindCodec.mapper().registerKinesisOrchestraModules()
+        DatabindCodec.prettyMapper().registerKinesisOrchestraModules()
+
         OrchestraCodecs.deployCodecs(vertx.eventBus())
 
         val awsCredentialsProvider = options.credentialsProviderSupplier.get()
@@ -29,7 +48,7 @@ class VertxKinesisOrchestraImpl(
         val check = JsonObject.mapFrom(options.asOrchestraVerticleOptions())
         check.mapTo(OrchestrationVerticleOptions::class.java)
 
-        val orchesterDeploymentId =
+        deploymentId =
             runCatching {
                 vertx.deployVerticleAwait(
                     OrchestrationVerticle::class.java.name,
@@ -42,7 +61,28 @@ class VertxKinesisOrchestraImpl(
                 )
             }
         vertx.orCreateContext.addCloseHook {
-            vertx.undeploy(orchesterDeploymentId)
+            if (running) {
+                vertx.undeploy(deploymentId)
+                running = false
+            }
+        }
+        running = true
+
+        return this
+    }
+
+    override fun close(handler: Handler<AsyncResult<Unit>>) {
+        CoroutineScope(vertx.dispatcher()).launch {
+            closeAwait()
+        }.invokeOnCompletion { throwable ->
+            throwable?.let { handler.handle(Future.failedFuture(it)) } ?: handler.handle(Future.succeededFuture())
+        }
+    }
+
+    override suspend fun closeAwait() {
+        if (running) {
+            vertx.undeployAwait(deploymentId)
+            running = false
         }
     }
 

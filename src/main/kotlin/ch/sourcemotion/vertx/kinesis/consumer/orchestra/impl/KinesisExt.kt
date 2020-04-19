@@ -1,6 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.awaitSuspending
+import kotlinx.coroutines.future.await
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
@@ -21,7 +21,7 @@ suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: Stri
 
 private suspend fun KinesisAsyncClient.streamDescription(streamName: String): StreamDescription = describeStream {
     it.streamName(streamName)
-}.awaitSuspending().streamDescription()
+}.await().streamDescription()
 
 suspend fun KinesisAsyncClient.getLatestShardIterator(
     streamName: String,
@@ -37,7 +37,7 @@ suspend fun KinesisAsyncClient.getShardIterator(
         builder.streamName(streamName)
         builder.shardId(shardId.id)
         builder.shardIteratorType(shardIteratorType)
-    }.awaitSuspending().shardIterator()
+    }.await().shardIterator()
 }
 
 suspend fun KinesisAsyncClient.getShardIteratorAtSequenceNumber(
@@ -50,7 +50,7 @@ suspend fun KinesisAsyncClient.getShardIteratorAtSequenceNumber(
         builder.shardId(shardId.id)
         builder.shardIteratorType(ShardIteratorType.AT_SEQUENCE_NUMBER)
         builder.startingSequenceNumber(sequenceNumber)
-    }.awaitSuspending().shardIterator()
+    }.await().shardIterator()
 }
 
 

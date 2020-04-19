@@ -2,10 +2,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.isKinesisConsumerException
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.replyConsumeRecordFailedIgnore
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.replyConsumeRecordFailedRetry
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.api.toKinesisConsumerException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle.Companion.CONSUMER_START_CMD_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
