@@ -1,0 +1,19 @@
+version: "2.3"
+services:
+  kinesis:
+    image: "localstack/localstack:0.10.8"
+    ports:
+      - "4568:4568"
+    environment:
+      - SERVICES=kinesis
+      - DEFAULT_REGION=eu-west-1
+      - DEBUG=${DEBUG- }
+      - DATA_DIR=${DATA_DIR- }
+      - PORT_WEB_UI=${PORT_WEB_UI- }
+      - LAMBDA_EXECUTOR=${LAMBDA_EXECUTOR- }
+      - KINESIS_ERROR_PROBABILITY=${KINESIS_ERROR_PROBABILITY- }
+      - DOCKER_HOST=unix:///var/run/docker.sock
+  redis:
+    image: "redis:5.0.6"
+    ports:
+      - "6379:6379"
