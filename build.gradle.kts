@@ -18,9 +18,11 @@ repositories {
 dependencyManagement {
     imports {
         mavenBom("io.vertx:vertx-dependencies:${version("vertx")}")
-        mavenBom("software.amazon.awssdk:bom:${version("awssdk")}")
         mavenBom("org.junit:junit-bom:${version("junit")}")
         mavenBom("org.testcontainers:testcontainers-bom:${version("testcontainers")}")
+    }
+    generatedPomCustomization {
+        setEnabled(false)
     }
 }
 
@@ -32,9 +34,11 @@ dependencies {
     api(vertx("vertx-lang-kotlin-coroutines"))
     api(vertx("vertx-service-discovery"))
 
-    api("software.amazon.awssdk:kinesis")
-    api("software.amazon.awssdk:netty-nio-client")
-    api("software.amazon.awssdk:sts")
+    api(aws("kinesis"))
+    api(aws("netty-nio-client"))
+    api(aws("sts"))
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${version("coroutines")}")
+
     api("io.reactiverse:vertx-aws-sdk:${version("vertx-aws-sdk")}")
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${dependencyManagement.importedProperties["jackson.version"]}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${dependencyManagement.importedProperties["jackson.version"]}")
@@ -54,7 +58,8 @@ dependencies {
     testImplementation("com.amazonaws:aws-java-sdk-core:${version("awssdk-old")}")
 }
 
-fun vertx(module: String) = "io.vertx:$module"
+fun vertx(module: String) = "io.vertx:$module:${version("vertx")}"
+fun aws(module: String) = "software.amazon.awssdk:$module:${version("awssdk")}"
 fun version(suffix: String) = property("version.$suffix")
 
 configure<JavaPluginConvention> {
