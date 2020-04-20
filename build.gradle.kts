@@ -2,13 +2,14 @@ import com.jfrog.bintray.gradle.BintrayExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
-
 plugins {
     kotlin("jvm") version "1.3.72"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
 }
+
+(System.getProperty("release_version") ?: findProperty("release_version"))?.let { version = it.toString() }
 
 repositories {
     mavenLocal()
@@ -80,8 +81,6 @@ tasks {
         environment(Pair("AWS_CBOR_DISABLE", "true"), Pair("CBOR_ENABLED", "false"), Pair("aws.cborEnabled", "false"))
     }
 }
-
-System.getProperty("version")?.let { version = it }
 
 val groupId = "ch.sourcemotion.vertx"
 val artifactId = "vertx-kinesis-consumer-orchestra"

@@ -64,7 +64,7 @@ object BuildAndUpload : BuildType({
     name = "Build and upload"
 
     params {
-        text("system.version", "", label = "Build version", display = ParameterDisplay.PROMPT, allowEmpty = false)
+        text("system.release_version", "", label = "Release version", display = ParameterDisplay.PROMPT, allowEmpty = false)
     }
 
     vcs {
