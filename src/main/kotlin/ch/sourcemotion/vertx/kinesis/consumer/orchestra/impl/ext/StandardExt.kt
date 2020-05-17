@@ -1,10 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext
 
-import kotlinx.coroutines.suspendCancellableCoroutine
-import java.util.concurrent.CompletableFuture
 import kotlin.contracts.contract
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 fun Boolean?.isTrue(): Boolean {
     contract {
