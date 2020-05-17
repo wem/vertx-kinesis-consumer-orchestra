@@ -18,9 +18,9 @@ repositories {
 
 dependencyManagement {
     imports {
-        mavenBom("io.vertx:vertx-dependencies:${version("vertx")}")
-        mavenBom("org.junit:junit-bom:${version("junit")}")
-        mavenBom("org.testcontainers:testcontainers-bom:${version("testcontainers")}")
+        mavenBom("io.vertx:vertx-dependencies:${libVersion("vertx")}")
+        mavenBom("org.junit:junit-bom:${libVersion("junit")}")
+        mavenBom("org.testcontainers:testcontainers-bom:${libVersion("testcontainers")}")
     }
     generatedPomCustomization {
         setEnabled(false)
@@ -38,30 +38,31 @@ dependencies {
     api(aws("kinesis"))
     api(aws("netty-nio-client"))
     api(aws("sts"))
-    api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${version("coroutines")}")
+    api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
 
-    api("io.reactiverse:vertx-aws-sdk:${version("vertx-aws-sdk")}")
+    api("io.reactiverse:vertx-aws-sdk:${libVersion("vertx-aws-sdk")}")
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${dependencyManagement.importedProperties["jackson.version"]}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${dependencyManagement.importedProperties["jackson.version"]}")
-    api("io.github.microutils:kotlin-logging:${version("kotlin-logging")}")
+    api("io.github.microutils:kotlin-logging:${libVersion("kotlin-logging")}")
 
     testImplementation(kotlin("test-junit"))
     testImplementation("org.junit.jupiter:junit-jupiter-engine")
     testImplementation("org.junit.vintage:junit-vintage-engine")
-    testImplementation("io.kotest:kotest-runner-junit5:${version("kotlintest-runner-junit5")}")
-    testImplementation("io.kotest:kotest-assertions-core-jvm:${version("kotlintest-runner-junit5")}")
+    testImplementation("io.kotest:kotest-runner-junit5:${libVersion("kotlintest-runner-junit5")}")
+    testImplementation("io.kotest:kotest-assertions-core-jvm:${libVersion("kotlintest-runner-junit5")}")
     testImplementation(vertx("vertx-junit5"))
-    testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${version("mockito-kotlin")}")
-    testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${version("log4j")}")
-    testImplementation("org.apache.logging.log4j:log4j-core:${version("log4j")}")
+    testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${libVersion("mockito-kotlin")}")
+    testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${libVersion("log4j")}")
+    testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:localstack")
-    testImplementation("com.amazonaws:aws-java-sdk-core:${version("awssdk-old")}")
+    testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:${libVersion("coroutines")}")
 }
 
-fun vertx(module: String) = "io.vertx:$module:${version("vertx")}"
-fun aws(module: String) = "software.amazon.awssdk:$module:${version("awssdk")}"
-fun version(suffix: String) = property("version.$suffix")
+fun vertx(module: String) = "io.vertx:$module:${libVersion("vertx")}"
+fun aws(module: String) = "software.amazon.awssdk:$module:${libVersion("awssdk")}"
+fun libVersion(suffix: String) = property("version.$suffix")
 
 configure<JavaPluginConvention> {
     sourceCompatibility = JavaVersion.VERSION_1_8
