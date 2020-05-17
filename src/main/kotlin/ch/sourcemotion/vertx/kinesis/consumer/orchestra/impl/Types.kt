@@ -11,6 +11,16 @@ data class ShardIterator(val iter: String) {
 
 fun String.asShardIteratorTyped() = ShardIterator(this)
 
+/**
+ * [iteratorPosition] determines the position on which shard iterator should be queried from Kinesis for the [number].
+ */
+data class SequenceNumber(val number: String, val iteratorPosition: SequenceNumberIteratorPosition)
+
+enum class SequenceNumberIteratorPosition { AFTER, AT }
+
+fun String.asSequenceNumberAt() = SequenceNumber(this, SequenceNumberIteratorPosition.AT)
+fun String.asSequenceNumberAfter() = SequenceNumber(this, SequenceNumberIteratorPosition.AFTER)
+
 data class ShardId(val id: String) {
     override fun toString() = id
 }
