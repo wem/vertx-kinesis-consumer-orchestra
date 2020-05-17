@@ -21,7 +21,7 @@ class ReshardingEventFactory(
 
     fun createReshardingEvent(): ReshardingEvent {
         val splitResultShards = ShardFilter.getSplitChildrenShards(streamDescription.shards(), endedShardId)
-        // On a resharding, if there are 2 shards they have the ended shard as parent singals that it's a split resharding
+        // On a resharding, if there are 2 shards they have the ended shard as parent signals that it's a split resharding
         return if (splitResultShards.size == 2) {
             createSplitReshardingEvent(splitResultShards)
         } else {
