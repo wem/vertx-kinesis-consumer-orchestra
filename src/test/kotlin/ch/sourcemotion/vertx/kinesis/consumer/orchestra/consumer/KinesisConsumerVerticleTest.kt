@@ -420,7 +420,6 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                     // Simulate very slow record processing, so iterator get expired
                     val consumerProcessingDuration = Duration.ofMinutes(5).plus(Duration.ofSeconds(2))
 
-                    logger.info { "Simulate very slow consumer. Will take ${consumerProcessingDuration.toSeconds()} seconds to proceed." }
                     vertx.setTimer(consumerProcessingDuration.toMillis()) {
                         logger.info { "Very slow consumer processing done." }
                         msg.ack()
