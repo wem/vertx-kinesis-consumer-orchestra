@@ -1,6 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIteratorTyped
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asSequenceNumberAt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.junit.jupiter.api.Test
 import java.time.Duration
-import java.util.*
 import kotlin.coroutines.resume
 
 internal class ShardStatePersistenceTest : AbstractRedisTest() {
@@ -33,36 +32,39 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
         private val shardId = ShardIdGenerator.generateShardId()
     }
 
+    private val sut by lazy {
+        ShardStatePersistence(
+            RedisAPI.api(redisClient),
+            Duration.ofMillis(DEFAULT_TEST_EXPIRATION),
+            RedisKeyFactory(APPLICATION_NAME, STREAM_NAME)
+        )
+    }
 
     @Test
     internal fun flagShardInProgress(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
-        shardStatePersistence.flagShardInProgress(shardId).shouldBeTrue()
-        shardStatePersistence.isShardInProgress(shardId).shouldBeTrue()
+        sut.flagShardInProgress(shardId).shouldBeTrue()
+        sut.isShardInProgress(shardId).shouldBeTrue()
     }
 
     @Test
     internal fun swapshard_progress_flag(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
-        shardStatePersistence.flagShardInProgress(shardId).shouldBeTrue()
-        shardStatePersistence.isShardInProgress(shardId).shouldBeTrue()
-        shardStatePersistence.flagShardNoMoreInProgress(shardId).shouldBeTrue()
-        shardStatePersistence.isShardInProgress(shardId).shouldBeFalse()
+        sut.flagShardInProgress(shardId).shouldBeTrue()
+        sut.isShardInProgress(shardId).shouldBeTrue()
+        sut.flagShardNoMoreInProgress(shardId).shouldBeTrue()
+        sut.isShardInProgress(shardId).shouldBeFalse()
     }
 
     @Test
     internal fun shard_progress_expiration(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
-        shardStatePersistence.flagShardInProgress(shardId).shouldBeTrue()
-        shardStatePersistence.isShardInProgress(shardId).shouldBeTrue()
+        sut.flagShardInProgress(shardId).shouldBeTrue()
+        sut.isShardInProgress(shardId).shouldBeTrue()
         delay(DEFAULT_TEST_EXPIRATION * 2)
-        shardStatePersistence.isShardInProgress(shardId).shouldBeFalse()
+        sut.isShardInProgress(shardId).shouldBeFalse()
     }
 
     @Test
     internal fun start_shard_progress_keepalive(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
-        val scheduleId = shardStatePersistence.startShardProgressAndKeepAlive(
+        val scheduleId = sut.startShardProgressAndKeepAlive(
             vertx, defaultTestScope,
             shardId
         )
@@ -72,70 +74,72 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
                 it.resume(Unit)
             }
         }
-        shardStatePersistence.isShardInProgress(shardId).shouldBeTrue()
+        sut.isShardInProgress(shardId).shouldBeTrue()
         vertx.cancelTimer(scheduleId.id)
         delay(DEFAULT_TEST_EXPIRATION * 2)
-        shardStatePersistence.isShardInProgress(shardId).shouldBeFalse()
+        sut.isShardInProgress(shardId).shouldBeFalse()
     }
 
     @Test
-    internal fun save_and_get_shardIterator(testContext: VertxTestContext) =
-        asyncTest(testContext) {
-            val shardIterator = UUID.randomUUID().toString().asShardIteratorTyped()
-            val shardStatePersistence = createShardStatePersistence()
-            shardStatePersistence.saveShardIterator(shardId, shardIterator)
-            shardStatePersistence.getShardIterator(shardId).shouldBe(shardIterator)
-        }
+    internal fun save_consumer_shard_sequence(testContext: VertxTestContext) = asyncTest(testContext) {
+        val sequenceNumber = "sequencenumber".asSequenceNumberAt()
+        sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
+        sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
+    }
 
     @Test
     internal fun delete_shard_iterator(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardIterator = UUID.randomUUID().toString().asShardIteratorTyped()
-        val shardStatePersistence = createShardStatePersistence()
-        shardStatePersistence.saveShardIterator(shardId, shardIterator)
-        shardStatePersistence.getShardIterator(shardId).shouldBe(shardIterator)
-        shardStatePersistence.deleteShardIterator(shardId).shouldBeTrue()
-        shardStatePersistence.getShardIterator(shardId).shouldBeNull()
+        val sequenceNumber = "sequencenumber".asSequenceNumberAt()
+        sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
+        sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
+        sut.deleteShardSequenceNumber(shardId).shouldBeTrue()
+        sut.getConsumerShardSequenceNumber(shardId).shouldBeNull()
     }
 
     @Test
     internal fun save_finished_shard(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
         val shardIds = ShardIdGenerator.generateShardIdList(2)
-        shardIds.forEach { shardStatePersistence.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION) }
-        shardIds.forEach { shardStatePersistence.isShardFinished(it).shouldBeTrue() }
-        val foundShardIds = shardStatePersistence.getFinishedShardIds()
+        shardIds.forEach { sut.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION) }
+        sut.getFinishedShardIds().shouldContainExactlyInAnyOrder(shardIds)
+        val foundShardIds = sut.getFinishedShardIds()
         foundShardIds.shouldContainExactlyInAnyOrder(shardIds)
     }
 
     @Test
     internal fun save_finished_shard_expiration(testContext: VertxTestContext) = asyncTest(testContext) {
-        val shardStatePersistence = createShardStatePersistence()
         val shardIds = ShardIdGenerator.generateShardIdList(10)
-        shardIds.forEach { shardStatePersistence.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION) }
-        shardIds.forEach { shardStatePersistence.isShardFinished(it).shouldBeTrue() }
+        shardIds.forEach { sut.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION) }
+        sut.getFinishedShardIds().shouldContainExactlyInAnyOrder(shardIds)
         delay(DEFAULT_TEST_EXPIRATION * 2)
-        shardStatePersistence.getFinishedShardIds().shouldBeEmpty()
+        sut.getFinishedShardIds().shouldBeEmpty()
+    }
+
+
+    @Test
+    internal fun merge_resharding_event_count(testContext: VertxTestContext) = asyncTest(testContext) {
+        val childShardId = ShardIdGenerator.generateShardId()
+        sut.getMergeReshardingEventCount(childShardId).shouldBe(1)
+        sut.getMergeReshardingEventCount(childShardId).shouldBe(2)
+        sut.deleteMergeReshardingEventCount(childShardId)
+        sut.getMergeReshardingEventCount(childShardId).shouldBe(1)
     }
 
     @Test
     internal fun get_shardids_in_progress_no_shards_in_progress(testContext: VertxTestContext) =
         asyncTest(testContext) {
-            val shardStatePersistence = createShardStatePersistence(DEFAULT_TEST_EXPIRATION)
-            shardStatePersistence.getShardIdsInProgress().shouldBeEmpty()
+            sut.getShardIdsInProgress().shouldBeEmpty()
         }
 
     @Test
     internal fun get_shardids_in_progress_one_shard_in_progress(testContext: VertxTestContext) =
         asyncTest(testContext) {
-            val shardStatePersistence = createShardStatePersistence(DEFAULT_TEST_EXPIRATION)
-            shardStatePersistence.flagShardInProgress(shardId).shouldBeTrue()
-            shardStatePersistence.getShardIdsInProgress().shouldContainExactly(shardId)
+            sut.flagShardInProgress(shardId).shouldBeTrue()
+            sut.getShardIdsInProgress().shouldContainExactly(shardId)
         }
 
     @Test
     internal fun get_shardids_in_progress_many_shards_in_progress(testContext: VertxTestContext) =
         asyncTest(testContext) {
-            val shardStatePersistence = createShardStatePersistence(DEFAULT_TEST_EXPIRATION)
             val shardIdList = mutableListOf(shardId).apply {
                 repeat(100) {
                     val shardNumber = it + 1
@@ -143,16 +147,9 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
                 }
             }
             shardIdList.forEach { shardId ->
-                shardStatePersistence.flagShardInProgress(shardId).shouldBeTrue()
+                sut.flagShardInProgress(shardId).shouldBeTrue()
             }
 
-            shardStatePersistence.getShardIdsInProgress().shouldContainExactlyInAnyOrder(shardIdList)
+            sut.getShardIdsInProgress().shouldContainExactlyInAnyOrder(shardIdList)
         }
-
-    private fun createShardStatePersistence(processExpirationMillis: Long = DEFAULT_TEST_EXPIRATION) =
-        ShardStatePersistence(
-            RedisAPI.api(redisClient),
-            Duration.ofMillis(processExpirationMillis),
-            RedisKeyFactory(APPLICATION_NAME, STREAM_NAME)
-        )
 }

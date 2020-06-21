@@ -4,6 +4,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeReshardingEvent
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.SplitReshardingEvent
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.bunchesOf
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.kotest.matchers.shouldBe
 import io.vertx.core.json.JsonObject
@@ -17,11 +18,9 @@ internal class ComponentTest : AbstractKinesisAndRedisTest() {
 
     companion object {
         const val RECORD_FAN_OUT_ADDR = "/kinesis/consumer/orchestra/fan-out"
-        const val PARAMETER_VALUE = "consumer-paramater"
+        const val PARAMETER_VALUE = "consumer-parameter"
         const val RECORD_COUNT = 100
     }
-
-    private lateinit var sut: VertxKinesisOrchestra
 
     @BeforeEach
     internal fun setUpComponent(testContext: VertxTestContext) = asyncTest(testContext) {
@@ -32,9 +31,9 @@ internal class ComponentTest : AbstractKinesisAndRedisTest() {
     }
 
     @Test
-    internal fun consumer_some_records(testContext: VertxTestContext) =
+    internal fun consume_some_records(testContext: VertxTestContext) =
         asyncTest(testContext, RECORD_COUNT) { checkpoint ->
-            sut = VertxKinesisOrchestra.create(
+            VertxKinesisOrchestra.create(
                 vertx,
                 VertxKinesisOrchestraOptions(
                     TEST_APPLICATION_NAME,
@@ -49,11 +48,12 @@ internal class ComponentTest : AbstractKinesisAndRedisTest() {
 
             eventBus.consumer<JsonObject>(RECORD_FAN_OUT_ADDR) { msg ->
                 val fanoutMessage = msg.body().mapTo(FanoutMessage::class.java)
+                logger.info { "${fanoutMessage.recordCount} records received" }
                 repeat(fanoutMessage.recordCount) { checkpoint.flag() }
                 testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
             }
 
-            putRecords(1, RECORD_COUNT)
+            putRecords(1 bunchesOf RECORD_COUNT)
         }
 }
 

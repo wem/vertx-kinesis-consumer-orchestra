@@ -2,6 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isFalse
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isTrue
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoolean
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
@@ -11,6 +12,7 @@ import io.vertx.redis.client.RedisAPI
 import io.vertx.redis.client.ResponseType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import mu.KLogging
 import java.io.Closeable
 import java.time.Duration
 
@@ -20,6 +22,9 @@ class ShardStatePersistence(
     private val shardProgressExpiration: Duration,
     private val redisKeyFactory: RedisKeyFactory
 ) : Closeable {
+
+    private companion object : KLogging()
+
     suspend fun isShardInProgress(shardId: ShardId): Boolean {
         val key = redisKeyFactory.createShardProgressFlagKey(shardId)
         return redisApi.getAwait(key)?.toBoolean().isTrue()
@@ -55,30 +60,41 @@ class ShardStatePersistence(
         }.asTimerIdTyped()
     }
 
-    suspend fun saveShardIterator(shardId: ShardId, shardIterator: ShardIterator): ShardIterator {
-        val key = redisKeyFactory.createShardIteratorKey(shardId)
-        redisApi.setAwait(listOf(key, shardIterator.iter))
-        return shardIterator
+    suspend fun saveConsumerShardSequenceNumber(
+        shardId: ShardId,
+        sequenceNumber: SequenceNumber
+    ): SequenceNumber {
+        val sequenceNumberKey = redisKeyFactory.createShardSequenceInfoKey(shardId)
+        // We concatenate the sequence number and the iterator type to save data and complexity
+        val sequenceNumberState = "${sequenceNumber.number}-${sequenceNumber.iteratorPosition.name}"
+        val success = redisApi.setAwait(listOf(sequenceNumberKey, sequenceNumberState)).okResponseAsBoolean()
+        if (success.isFalse()) {
+            logger.warn { "Unable to save consumer sequence number info: \"$sequenceNumberState\" on shard: \"$shardId\"" }
+        }
+        return sequenceNumber
     }
 
-    suspend fun getShardIterator(shardId: ShardId): ShardIterator? {
-        val key = redisKeyFactory.createShardIteratorKey(shardId)
-        return redisApi.getAwait(key)?.toString(Charsets.UTF_8)?.asShardIteratorTyped()
+    suspend fun getConsumerShardSequenceNumber(shardId: ShardId): SequenceNumber? {
+        val sequenceNumberKey = redisKeyFactory.createShardSequenceInfoKey(shardId)
+        val response = redisApi.getAwait(sequenceNumberKey)
+        val sequenceNumberStateRawValue = response?.toString()
+        val sequenceNumberState = sequenceNumberStateRawValue?.let { sequenceAndIteratorType ->
+            val split = sequenceAndIteratorType.split("-")
+            split.first() to SequenceNumberIteratorPosition.valueOf(split.last())
+        }
+
+        return sequenceNumberState?.let { SequenceNumber(it.first, it.second) }
     }
 
-    suspend fun deleteShardIterator(shardId: ShardId): Boolean {
-        val key = redisKeyFactory.createShardIteratorKey(shardId)
-        return redisApi.delAwait(listOf(key))?.toBoolean().isTrue()
+    suspend fun deleteShardSequenceNumber(shardId: ShardId): Boolean {
+        val iteratorKey = redisKeyFactory.createShardSequenceInfoKey(shardId)
+        val sequenceNumberKey = redisKeyFactory.createShardSequenceInfoKey(shardId)
+        return redisApi.delAwait(listOf(iteratorKey, sequenceNumberKey))?.toBoolean().isTrue()
     }
 
     suspend fun saveFinishedShard(shardId: ShardId, expirationMillis: Long) {
         val key = redisKeyFactory.createShardFinishedKey(shardId)
         redisApi.setAwait(listOf(key, "1", "PX", expirationMillis.toString()))
-    }
-
-    suspend fun isShardFinished(shardId: ShardId): Boolean {
-        val key = redisKeyFactory.createShardFinishedKey(shardId)
-        return redisApi.existsAwait(listOf(key))?.toBoolean().isTrue()
     }
 
     suspend fun getFinishedShardIds(): ShardIdList {
@@ -91,6 +107,22 @@ class ShardStatePersistence(
             }
             response.map { extractTypedShardId(it.toString(Charsets.UTF_8)) }
         } ?: emptyList()
+    }
+
+    suspend fun getMergeReshardingEventCount(childShardId: ShardId): Int {
+        val counterKey = redisKeyFactory.createMergeReshardingEventCountKey(childShardId)
+        return redisApi.incrAwait(counterKey)?.toInteger() ?: 0
+    }
+
+    suspend fun deleteMergeReshardingEventCount(childShardId: ShardId) {
+        val counterKey = redisKeyFactory.createMergeReshardingEventCountKey(childShardId)
+        redisApi.delAwait(listOf(counterKey))?.let { response ->
+            response.runCatching {
+                if (toInteger() != 1) {
+                    logger.warn { "Unable to delete merge resharding event counter of child shard $childShardId" }
+                }
+            }
+        }
     }
 
     private fun extractTypedShardId(keyContainsShardId: String) =

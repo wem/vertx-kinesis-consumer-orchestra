@@ -51,24 +51,28 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             "http://${localStackContainer.containerIpAddress}:${localStackContainer.getMappedPort(LocalStackContainer.Service.KINESIS.port)}"
     }
 
-    protected lateinit var kinesisClient: KinesisAsyncClient
-    protected lateinit var shardStatePersistence: ShardStatePersistence
+    protected val kinesisClient: KinesisAsyncClient by lazy {
+        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+            .createKinesisAsyncClient(context)
+    }
+
+    protected val shardStatePersistence: ShardStatePersistence by lazy {
+        SharedData.getSharedInstance<ShardStatePersistenceFactory>(vertx, ShardStatePersistenceFactory.SHARED_DATA_REF)
+            .createShardStatePersistence(
+                RedisAPI.api(
+                    Redis.createClient(
+                        vertx,
+                        redisOptions
+                    )
+                )
+            )
+    }
 
     @BeforeEach
     internal fun setUpSharedInstancesAndClients(vertx: Vertx) {
         shareCredentialsProvider(vertx)
-
-        val shardStatePersistenceFactory = createAndShareShardStatePersistenceFactory(vertx)
-        shardStatePersistence = shardStatePersistenceFactory.createShardStatePersistence(
-            RedisAPI.api(
-                Redis.createClient(
-                    vertx,
-                    redisOptions
-                )
-            )
-        )
-
-        kinesisClient = createAndShareKinesisAsyncClientFactory(vertx).createKinesisAsyncClient(context)
+        createAndShareShardStatePersistenceFactory(vertx)
+        createAndShareKinesisAsyncClientFactory(vertx).createKinesisAsyncClient(context)
     }
 
     /**
@@ -90,7 +94,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
         logger.info { "Kinesis streams deleted" }
     }
 
-    private fun shareCredentialsProvider(vertx: Vertx) {
+    internal fun shareCredentialsProvider(vertx: Vertx) {
         SharedData.shareInstance(
             vertx,
             ShareableAwsCredentialsProvider(CREDENTIALS_PROVIDER),
@@ -118,18 +122,18 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
     }
 
     protected suspend fun putRecords(
-        recordBundleCount: Int,
-        recordCountPerBundle: Int,
+        recordBunching: RecordPutBunching,
         recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
         partitionKeySupplier: (Int) -> String = { "partition-key_$it" }
     ) {
-        repeat(recordBundleCount) { bundleIdx ->
+        repeat(recordBunching.recordBunches) { bunchIdx ->
             // Partition key is per bundle
-            val partitionKey = partitionKeySupplier(bundleIdx)
-            val putRequestRecords = Array<PutRecordsRequestEntry>(recordCountPerBundle) { recordIdx ->
+            val partitionKey = partitionKeySupplier(bunchIdx)
+
+            val putRequestRecords = List(recordBunching.recordsPerBunch) { recordIdx ->
                 PutRecordsRequestEntry.builder().partitionKey(partitionKey).data(recordDataSupplier(recordIdx))
                     .build()
-            }.toList()
+            }
             val putResponse = kinesisClient.putRecords {
                 it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
             }.await()
@@ -139,19 +143,19 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
     }
 
     protected suspend fun putRecordsExplicitHashKey(
-        recordBundleCount: Int,
-        recordCountPerBundle: Int,
+        recordBunching: RecordPutBunching,
         recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
         streamName: String = TEST_STREAM_NAME,
         predefinedShards: ShardList? = null
     ) {
         // Count of record bundles must equal to the count of shards
         val shards = predefinedShards ?: kinesisClient.streamDescriptionWhenActiveAwait(streamName).shards()
-        shards.shouldHaveSize(recordBundleCount)
+        shards.shouldHaveSize(recordBunching.recordBunches)
 
-        repeat(recordBundleCount) { bundleIdx ->
+        repeat(recordBunching.recordBunches) { bundleIdx ->
             val hashKey = shards[bundleIdx].hashKeyRange().startingHashKey()
-            val putRequestRecords = Array<PutRecordsRequestEntry>(recordCountPerBundle) { recordIdx ->
+
+            val putRequestRecords = List(recordBunching.recordsPerBunch) { recordIdx ->
                 PutRecordsRequestEntry.builder().explicitHashKey(hashKey).partitionKey("partition-key")
                     .data(recordDataSupplier(recordIdx))
                     .build()

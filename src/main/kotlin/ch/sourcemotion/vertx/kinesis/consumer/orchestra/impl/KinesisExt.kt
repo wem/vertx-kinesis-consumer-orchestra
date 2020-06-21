@@ -31,26 +31,26 @@ suspend fun KinesisAsyncClient.getLatestShardIterator(
 suspend fun KinesisAsyncClient.getShardIterator(
     streamName: String,
     shardIteratorType: ShardIteratorType,
-    shardId: ShardId
-): String {
+    shardId: ShardId,
+    sequenceNumber: SequenceNumber? = null
+): ShardIterator {
     return getShardIterator { builder ->
         builder.streamName(streamName)
         builder.shardId(shardId.id)
         builder.shardIteratorType(shardIteratorType)
-    }.await().shardIterator()
+        sequenceNumber?.let { builder.startingSequenceNumber(it.number) }
+    }.await().shardIterator().asShardIteratorTyped()
 }
 
-suspend fun KinesisAsyncClient.getShardIteratorAtSequenceNumber(
+suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumber(
     streamName: String,
     shardId: ShardId,
-    sequenceNumber: String
-): String {
-    return getShardIterator { builder ->
-        builder.streamName(streamName)
-        builder.shardId(shardId.id)
-        builder.shardIteratorType(ShardIteratorType.AT_SEQUENCE_NUMBER)
-        builder.startingSequenceNumber(sequenceNumber)
-    }.await().shardIterator()
+    sequenceNumber: SequenceNumber
+): ShardIterator {
+    val iteratorType = if (sequenceNumber.iteratorPosition == SequenceNumberIteratorPosition.AFTER) {
+        ShardIteratorType.AFTER_SEQUENCE_NUMBER
+    } else {
+        ShardIteratorType.AT_SEQUENCE_NUMBER
+    }
+    return getShardIterator(streamName, iteratorType, shardId, sequenceNumber)
 }
-
-

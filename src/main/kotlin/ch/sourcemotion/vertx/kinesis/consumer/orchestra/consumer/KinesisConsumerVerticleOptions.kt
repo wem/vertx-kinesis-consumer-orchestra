@@ -11,7 +11,7 @@ import io.vertx.redis.client.RedisOptions
  * they will get merged. So both configurations must be able to ignore unknown properties as they are not aware of each other.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-internal class KinesisConsumerVerticleOptions(
+internal data class KinesisConsumerVerticleOptions(
     val applicationName: String,
     val streamName: String,
     val shardIteratorStrategy: ShardIteratorStrategy,

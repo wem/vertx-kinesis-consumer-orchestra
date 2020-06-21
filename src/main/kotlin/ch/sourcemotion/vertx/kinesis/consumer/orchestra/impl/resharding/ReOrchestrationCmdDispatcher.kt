@@ -1,12 +1,12 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIdList
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIteratorTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isFalse
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.getShardIteratorAtSequenceNumber
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import io.vertx.core.Vertx
@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import software.amazon.awssdk.services.kinesis.model.SequenceNumberRange
 import java.util.*
 
 
@@ -84,7 +85,7 @@ abstract class ReOrchestrationCmdDispatcher(
         vertx.eventBus().consumer(ReshardingEvent.NOTIFICATION_ADDR, this::onConsumerResharding)
     }
 
-    open suspend fun stop() {}
+    abstract suspend fun stop()
 
     private fun onConsumerResharding(msg: Message<ReshardingEvent>) {
         scope.launch {
@@ -94,7 +95,8 @@ abstract class ReOrchestrationCmdDispatcher(
                 // This because if the orchestration will shutdown in the period between both parents did end properly,
                 // no shard iterator is available for child shard.
                 persistChildShardsIterators(reshardingEvent)
-                if (canBeReOrchestrated(reshardingEvent)) {
+
+                if (isReOrchestrationReadyAfterMerge(reshardingEvent)) {
                     sendReOrchestrateCmd()
                 }
             } else {
@@ -105,14 +107,20 @@ abstract class ReOrchestrationCmdDispatcher(
         }
     }
 
-    private suspend fun canBeReOrchestrated(mergeReshardingEvent: MergeReshardingEvent): Boolean {
-        val otherParentShardId =
-            if (mergeReshardingEvent.adjacentParentShardId == mergeReshardingEvent.finishedShardId) {
-                mergeReshardingEvent.parentShardId
-            } else {
-                mergeReshardingEvent.adjacentParentShardId
+    /**
+     * Results true if the orchestra is ready for re-orchestration after merge resharding event. This is done with a
+     * counter of parent [ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle]
+     * instances they did send a resharding event. To avoid multiple re-orchstration this is done with a counter, as
+     * it's possible that the parent shard consumer verticles are running on different orchestra instances.
+     *
+     * @return If the ready to get re-orchestrated or wait for further event.
+     */
+    private suspend fun isReOrchestrationReadyAfterMerge(mergeReshardingEvent: MergeReshardingEvent): Boolean {
+        return (shardStatePersistence.getMergeReshardingEventCount(mergeReshardingEvent.childShardId) == 2).also { canReOrchestrate ->
+            if (canReOrchestrate) {
+                shardStatePersistence.deleteMergeReshardingEventCount(mergeReshardingEvent.childShardId)
             }
-        return shardStatePersistence.isShardFinished(otherParentShardId)
+        }
     }
 
     /**
@@ -120,6 +128,13 @@ abstract class ReOrchestrationCmdDispatcher(
      */
     protected abstract suspend fun sendReOrchestrateCmd()
 
+    /**
+     * Persist the next starting sequence numbers (1 pair when merge, 2 pairs when split).
+     * Represent the position in the shard(s) to continue after resharding.
+     *
+     * This happens here and not in the [ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestrationVerticle]
+     * to avoid saving this state multiple times.
+     */
     private suspend fun persistChildShardsIterators(reshardingInfo: ReshardingEvent) {
         val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(streamName)
 
@@ -138,15 +153,13 @@ abstract class ReOrchestrationCmdDispatcher(
         reshardingChildShardIds.forEach { childShardId ->
             val startingSequenceNumber =
                 streamDescription.shards().first { it.shardIdTyped() == childShardId }.sequenceNumberRange()
-                    .startingSequenceNumber()
-            val iterator = kinesisClient.getShardIteratorAtSequenceNumber(
-                streamName,
-                childShardId,
-                startingSequenceNumber
-            ).asShardIteratorTyped()
-            shardStatePersistence.saveShardIterator(childShardId, iterator)
+                    .atSequenceNumberTyped()
+            shardStatePersistence.saveConsumerShardSequenceNumber(childShardId, startingSequenceNumber)
         }
     }
+
+    private fun SequenceNumberRange.atSequenceNumberTyped() =
+        SequenceNumber(startingSequenceNumber(), SequenceNumberIteratorPosition.AT)
 }
 
 /**
@@ -187,7 +200,6 @@ class EventBusReOrchestrationCmdDispatcher(
     }
 
     override suspend fun stop() {
-        super.stop()
         publishedRecord?.let { serviceDiscovery.unpublishAwait(it.registration) }
     }
 
@@ -228,19 +240,15 @@ class RedisReOrchestrationCmdDispatcher(
     private companion object : KLogging()
 
     private lateinit var redis: Redis
-    private var running = false
     private val channelName = "resharding-organizer-$applicationName-$streamName"
 
     override suspend fun start() {
         super.start()
         redis = Redis.createClient(vertx, redisOptions)
-        running = true
         subscribeToReOrchestrationCmd(redis.connectAwait())
     }
 
     override suspend fun stop() {
-        super.stop()
-        running = false
         runCatching { redis.close() }
     }
 

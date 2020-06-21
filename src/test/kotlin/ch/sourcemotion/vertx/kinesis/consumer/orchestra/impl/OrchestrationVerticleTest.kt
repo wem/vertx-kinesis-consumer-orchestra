@@ -7,6 +7,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestrationVertic
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.bunchesOf
 import io.kotest.matchers.ints.shouldBeBetween
 import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
@@ -29,14 +30,12 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
 
     @Test
     internal fun streaming_one_shard(testContext: VertxTestContext) {
-        val recordBundleCount = 10
-        val recordCountPerBundle = 100
-        val recordCount = recordBundleCount * recordCountPerBundle
+        val recordBunching = 10 bunchesOf 100
 
         val dataString = "record-data"
         val recordData = SdkBytes.fromUtf8String(dataString)
 
-        asyncTest(testContext, recordCount) { checkpoint ->
+        asyncTest(testContext, recordBunching.recordCount) { checkpoint ->
 
             createAndGetStreamDescriptionWhenActive(1)
 
@@ -52,19 +51,17 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
 
             deployOrchestrationVerticle(vertx, LoadConfiguration.createExactConfig(1))
 
-            putRecords(recordBundleCount, recordCountPerBundle, { recordData })
+            putRecords(recordBunching, { recordData })
         }
     }
 
     @Test
     internal fun streaming_four_shards(testContext: VertxTestContext) {
-        val recordBundleCount = 4
-        val recordCountPerBundle = 250
-        val recordCount = recordBundleCount * recordCountPerBundle
-
+        val recordBunching = 4 bunchesOf 250
         val dataString = "record-data"
-        asyncTest(testContext, recordCount + 1) { checkpoint ->
-            createAndGetStreamDescriptionWhenActive(recordBundleCount)
+
+        asyncTest(testContext, recordBunching.recordCount + 1) { checkpoint ->
+            createAndGetStreamDescriptionWhenActive(recordBunching.recordBunches)
 
             val recordNumbers = ArrayList<Int>()
             eventBus.consumer<JsonArray>(RECORDS_RECEIVED_ACK_ADDR) {
@@ -73,15 +70,15 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
                     recordsData.forEach { data ->
                         val recordNumber = data.toString().substringAfter("_").toInt()
                         testContext.verify {
-                            recordNumber.shouldBeBetween(0, recordCountPerBundle - 1)
+                            recordNumber.shouldBeBetween(0, recordBunching.recordsPerBunch - 1)
                             recordNumbers.add(recordNumber)
                             checkpoint.flag()
                         }
                     }
-                    if (recordNumbers.size == recordCount) {
+                    if (recordNumbers.size == recordBunching.recordCount) {
                         testContext.verify {
-                            repeat(recordCountPerBundle) { recordNumber ->
-                                recordNumbers.filter { it == recordNumber }.size.shouldBe(recordBundleCount)
+                            repeat(recordBunching.recordsPerBunch) { recordNumber ->
+                                recordNumbers.filter { it == recordNumber }.size.shouldBe(recordBunching.recordBunches)
                             }
                             checkpoint.flag()
                         }
@@ -92,10 +89,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
             deployOrchestrationVerticle(vertx, LoadConfiguration.createDoAllShardsConfig())
 
             // We put the records with explicit hash key instead of partition key to ensure fair distribution between shards
-            putRecordsExplicitHashKey(
-                recordBundleCount,
-                recordCountPerBundle,
-                { SdkBytes.fromUtf8String("${dataString}_$it") })
+            putRecordsExplicitHashKey(recordBunching, { SdkBytes.fromUtf8String("${dataString}_$it") })
         }
     }
 
@@ -165,8 +159,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
                 checkpoint.flag()
                 defaultTestScope.launch {
                     putRecordsExplicitHashKey(
-                        step.shardIds.size,
-                        step.recordCountPerBundle,
+                        step.shardIds.size bunchesOf step.recordCountPerBundle,
                         { SdkBytes.fromUtf8String("${dataString}_$it") },
                         predefinedShards = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
                             .filter { step.shardIds.contains(it.shardIdTyped()) }
@@ -175,8 +168,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
             }
 
             putRecordsExplicitHashKey(
-                step.shardIds.size,
-                step.recordCountPerBundle,
+                step.shardIds.size bunchesOf step.recordCountPerBundle,
                 { SdkBytes.fromUtf8String("${dataString}_$it") },
                 predefinedShards = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
                     .filter { step.shardIds.contains(it.shardIdTyped()) }
