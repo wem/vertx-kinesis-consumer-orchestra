@@ -103,7 +103,7 @@ bintray {
         repo = "maven"
         name = artifactId
         userOrg = "michel-werren"
-        vcsUrl = "https://gitlab.com/michel.werren/vertx-retry"
+        vcsUrl = "https://github.com/wem/vertx-kinesis-consumer-orchestra"
         version(closureOf<BintrayExtension.VersionConfig> {
             name = project.version.toString()
             released = Date().toString()
