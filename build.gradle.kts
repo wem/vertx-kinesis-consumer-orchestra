@@ -4,6 +4,7 @@ import java.util.*
 
 plugins {
     kotlin("jvm") version "1.3.72"
+    kotlin("kapt") version "1.3.72"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
@@ -12,8 +13,8 @@ plugins {
 (System.getProperty("release_version") ?: findProperty("release_version"))?.let { version = it.toString() }
 
 repositories {
-    mavenLocal()
     jcenter()
+    mavenLocal()
 }
 
 dependencyManagement {
@@ -34,6 +35,10 @@ dependencies {
     api(vertx("vertx-lang-kotlin"))
     api(vertx("vertx-lang-kotlin-coroutines"))
     api(vertx("vertx-service-discovery"))
+    api(vertx("vertx-service-proxy"))
+    compileOnly(vertx("vertx-codegen"))
+
+    kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
     api(aws("kinesis"))
     api(aws("netty-nio-client"))
@@ -56,6 +61,7 @@ dependencies {
     testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:localstack")
+    testImplementation("org.testcontainers:toxiproxy")
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:${libVersion("coroutines")}")
 }
