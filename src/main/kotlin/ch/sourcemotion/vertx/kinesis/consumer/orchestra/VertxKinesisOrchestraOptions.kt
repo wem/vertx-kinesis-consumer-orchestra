@@ -32,7 +32,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Interval Kinesis should be queried for new records. If the processing time of the previous received bunch of records did
      * take longer than this interval, then Kinesis will get queried immediately when this work get done.
      */
-    var kinesisPollInterval: Duration = Duration.ofMillis(DEFAULT_KINESIS_POLL_INTERVAL),
+    var kinesisPollInterval: Duration = Duration.ofMillis(DEFAULT_KINESIS_POLL_INTERVAL_MILLIS),
 
     /**
      * The max. amount of records per query against Kinesis.
@@ -44,7 +44,17 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * the shard will be handled as not currently processed by any consumer. This is to avoid death locks in the case of
      * ungracefully shutdown of a consumer or the whole orchestra.
      */
-    var shardProgressExpiration: Duration = Duration.ofMillis(DEFAULT_SHARD_PROGRESS_EXPIRATION),
+    var shardProgressExpiration: Duration = Duration.ofMillis(DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS),
+
+    /**
+     * If the user has its own implementation of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService] this can be configured here.
+     * As default [ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle]
+     * will be used. To be save, please ensure to deploy the own implementation of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService]
+     * before you start the orchestra, as this service will be used immediately.
+     *
+     * You must use a variant of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory.expose] to expose your custom shard state persistence implementation!
+     */
+    var useCustomShardStatePersistenceService: Boolean = false,
 
     /**
      * Supplier of the correct credentials for the respectively environment.
@@ -60,6 +70,11 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Vert.x Redis options. Used to configure Redis clients they access shard.
      */
     var redisOptions: RedisOptions,
+
+    /**
+     * If the connection to Redis get lost, the orchestra will try to reconnect to Redis in this interval.
+     */
+    val redisReconnectionInterval: Long = DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS,
 
     /**
      * Strategy how and which shard iterator should be used. Please read Javadoc of
@@ -85,7 +100,9 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * In the case of ungracefully shutdown of the whole orchestra this expiration should avoid death locks, and therefore
      * no consumer can get deployed later.
      */
-    val consumerDeploymentLockExpiration: Duration = Duration.ofMillis(DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION),
+    val consumerDeploymentLockExpiration: Duration = Duration.ofMillis(
+        DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS
+    ),
 
     /**
      * Interval of the retry to acquire consumer deployment lock. Each orchestra instance have to get acquire the lock during
@@ -93,7 +110,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * (over all orchestra instances) deployment time.
      */
     val consumerDeploymentLockRetryInterval: Duration = Duration.ofMillis(
-        DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL
+        DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS
     ),
 
     /**
@@ -122,10 +139,11 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     var consumerVerticleConfig: JsonObject = JsonObject()
 ) {
     companion object {
-        const val DEFAULT_KINESIS_POLL_INTERVAL = 1000L
-        const val DEFAULT_SHARD_PROGRESS_EXPIRATION = 10000L
-        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION = 10000L
-        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL = 500L
+        const val DEFAULT_KINESIS_POLL_INTERVAL_MILLIS = 1000L
+        const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
+        const val DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS = 2000L
+        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
+        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
 
         // https://docs.aws.amazon.com/streams/latest/dev/service-sizes-and-limits.html
         const val DEFAULT_RECORDS_PER_POLL_LIMIT = 10000

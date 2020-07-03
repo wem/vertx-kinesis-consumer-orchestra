@@ -26,7 +26,3 @@ data class ShardId(val id: String) {
 }
 
 fun String.asShardIdTyped(): ShardId = ShardId(this)
-
-inline class TimerId(val id: Long)
-
-fun Long.asTimerIdTyped() = TimerId(this)

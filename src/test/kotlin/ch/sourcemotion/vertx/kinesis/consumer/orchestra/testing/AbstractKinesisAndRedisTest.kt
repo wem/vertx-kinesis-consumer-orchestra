@@ -5,16 +5,17 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.vertx.core.Vertx
+import io.vertx.core.DeploymentOptions
+import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
-import io.vertx.redis.client.Redis
-import io.vertx.redis.client.RedisAPI
+import io.vertx.kotlin.core.deployVerticleAwait
 import kotlinx.coroutines.future.await
 import mu.KLogging
 import org.junit.jupiter.api.AfterEach
@@ -30,7 +31,6 @@ import software.amazon.awssdk.services.kinesis.model.PutRecordsRequestEntry
 import software.amazon.awssdk.services.kinesis.model.Shard
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.math.BigInteger
-import java.time.Duration
 
 
 internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
@@ -56,24 +56,18 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             .createKinesisAsyncClient(context)
     }
 
-    protected val shardStatePersistence: ShardStatePersistence by lazy {
-        SharedData.getSharedInstance<ShardStatePersistenceFactory>(vertx, ShardStatePersistenceFactory.SHARED_DATA_REF)
-            .createShardStatePersistence(
-                RedisAPI.api(
-                    Redis.createClient(
-                        vertx,
-                        redisOptions
-                    )
-                )
-            )
+    protected val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy {
+        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
     }
 
     @BeforeEach
-    internal fun setUpSharedInstancesAndClients(vertx: Vertx) {
-        shareCredentialsProvider(vertx)
-        createAndShareShardStatePersistenceFactory(vertx)
-        createAndShareKinesisAsyncClientFactory(vertx).createKinesisAsyncClient(context)
-    }
+    fun credentialsProviderKinesisClientFactoryAndShardPersistence(testContext: VertxTestContext) =
+        asyncTest(testContext) {
+            shareCredentialsProvider()
+            createAndShareKinesisAsyncClientFactory().createKinesisAsyncClient(context)
+            deployShardStatePersistenceService()
+        }
+
 
     /**
      * Cleanup Kinesis streams after each test function as the Kinesis instance is per the class.
@@ -94,7 +88,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
         logger.info { "Kinesis streams deleted" }
     }
 
-    internal fun shareCredentialsProvider(vertx: Vertx) {
+    private fun shareCredentialsProvider() {
         SharedData.shareInstance(
             vertx,
             ShareableAwsCredentialsProvider(CREDENTIALS_PROVIDER),
@@ -102,23 +96,24 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
         )
     }
 
-    private fun createAndShareShardStatePersistenceFactory(vertx: Vertx): ShardStatePersistenceFactory {
-        return createShardStatePersistenceFactory().also {
-            SharedData.shareInstance(vertx, it, ShardStatePersistenceFactory.SHARED_DATA_REF)
-        }
+    private suspend fun deployShardStatePersistenceService() {
+        val options = RedisShardStatePersistenceServiceVerticleOptions(
+            TEST_APPLICATION_NAME,
+            TEST_STREAM_NAME,
+            redisOptions,
+            VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
+        )
+        vertx.deployVerticleAwait(
+            RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
+                JsonObject.mapFrom(options)
+            )
+        )
     }
 
-    private fun createAndShareKinesisAsyncClientFactory(vertx: Vertx): KinesisAsyncClientFactory {
+    private fun createAndShareKinesisAsyncClientFactory(): KinesisAsyncClientFactory {
         val kinesisAsyncClientFactory = KinesisAsyncClientFactory(vertx, REGION.id(), getKinesisEndpoint())
         SharedData.shareInstance(vertx, kinesisAsyncClientFactory, KinesisAsyncClientFactory.SHARED_DATA_REF)
         return kinesisAsyncClientFactory
-    }
-
-    private fun createShardStatePersistenceFactory(): ShardStatePersistenceFactory {
-        return ShardStatePersistenceFactory(
-            Duration.ofMillis(VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION),
-            RedisKeyFactory(TEST_APPLICATION_NAME, TEST_STREAM_NAME)
-        )
     }
 
     protected suspend fun putRecords(

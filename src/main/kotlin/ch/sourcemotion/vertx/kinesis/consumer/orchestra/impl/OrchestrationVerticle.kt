@@ -9,7 +9,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyn
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReOrchestrationCmdDispatcher
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.eventbus.DeliveryOptions
@@ -43,8 +43,9 @@ class OrchestrationVerticle : CoroutineVerticle() {
     }
 
     private val shardStatePersistence by lazy {
-        SharedData.getSharedInstance<ShardStatePersistenceFactory>(vertx, ShardStatePersistenceFactory.SHARED_DATA_REF)
-            .createShardStatePersistence(RedisAPI.api(redis))
+        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(
+            vertx
+        )
     }
 
     private val consumerDeploymentLock by lazy {
