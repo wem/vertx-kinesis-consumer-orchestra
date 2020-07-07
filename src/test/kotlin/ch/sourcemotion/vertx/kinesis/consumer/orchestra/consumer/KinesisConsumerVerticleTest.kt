@@ -271,7 +271,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
             kinesisClient,
-            shardStatePersistence,
+            shardStatePersistenceService,
             defaultTestScope,
             redisOptions
         ) {
@@ -279,8 +279,10 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 //Await stream is active again
                 kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
 
-                val isParentShardInProgress = shardStatePersistence.isShardInProgress(parentShardId)
-                val existingParentShardIterator = shardStatePersistence.getConsumerShardSequenceNumber(parentShardId)
+                val isParentShardInProgress =
+                    shardStatePersistenceService.getShardIdsInProgress().contains(parentShardId)
+                val existingParentShardIterator =
+                    shardStatePersistenceService.getConsumerShardSequenceNumber(parentShardId)
 
                 testContext.verify {
                     isParentShardInProgress.shouldBeFalse()
@@ -313,18 +315,20 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
             kinesisClient,
-            shardStatePersistence,
+            shardStatePersistenceService,
             defaultTestScope,
             redisOptions
         ) {
             defaultTestScope.launch {
-                val isParentShardInProgress = shardStatePersistence.isShardInProgress(parentShardId)
-                val parentShardIterator = shardStatePersistence.getConsumerShardSequenceNumber(parentShardId)
-                val isAdjacentParentShardInProgress = shardStatePersistence.isShardInProgress(adjacentParentShardId)
+                val isParentShardInProgress =
+                    shardStatePersistenceService.getShardIdsInProgress().contains(parentShardId)
+                val parentShardIterator = shardStatePersistenceService.getConsumerShardSequenceNumber(parentShardId)
+                val isAdjacentParentShardInProgress =
+                    shardStatePersistenceService.getShardIdsInProgress().contains(adjacentParentShardId)
                 val adjacentParentShardIterator =
-                    shardStatePersistence.getConsumerShardSequenceNumber(adjacentParentShardId)
+                    shardStatePersistenceService.getConsumerShardSequenceNumber(adjacentParentShardId)
 
-                val finishedShardIds = shardStatePersistence.getFinishedShardIds()
+                val finishedShardIds = shardStatePersistenceService.getFinishedShardIds()
 
                 testContext.verify {
                     isParentShardInProgress.shouldBeFalse()
@@ -348,7 +352,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
      * Simulates the restart of a consumer to test iterator persistence etc.
      */
     @Test
-    internal fun consumer_restart_and_iterator_expiration(testContext: VertxTestContext) {
+    internal fun consumer_restart(testContext: VertxTestContext) {
         val recordBunching = 1 bunchesOf 10
         val recordCount = recordBunching.recordCount
 
@@ -370,6 +374,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 msg.ack()
                 val recordIdx = msg.body().data().asUtf8String().toInt()
                 receivedRecordIndices.add(recordIdx)
+
                 if (receivedRecordIndices.size == recordCount) {
                     logger.info { "Received first bunch of records. Restart consumer" }
                     defaultTestScope.launch {

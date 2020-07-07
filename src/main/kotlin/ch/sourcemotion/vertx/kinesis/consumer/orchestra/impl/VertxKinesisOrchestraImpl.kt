@@ -7,8 +7,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.OrchestraCode
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesisOrchestraModules
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import io.vertx.core.*
 import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
@@ -44,6 +44,10 @@ class VertxKinesisOrchestraImpl(
         val awsCredentialsProvider = options.credentialsProviderSupplier.get()
         shareCredentials(awsCredentialsProvider)
         shareFactories(vertx)
+
+        if (options.useCustomShardStatePersistenceService.not()) {
+            deployDefaultShardStatePersistence()
+        }
 
         val check = JsonObject.mapFrom(options.asOrchestraVerticleOptions())
         check.mapTo(OrchestrationVerticleOptions::class.java)
@@ -86,6 +90,20 @@ class VertxKinesisOrchestraImpl(
         }
     }
 
+    private suspend fun deployDefaultShardStatePersistence() {
+        val options = RedisShardStatePersistenceServiceVerticleOptions(
+            options.applicationName,
+            options.streamName,
+            options.redisOptions,
+            options.shardProgressExpiration.toMillis()
+        )
+        vertx.deployVerticleAwait(
+            RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
+                JsonObject.mapFrom(options)
+            )
+        )
+    }
+
     private fun shareCredentials(credentialsProvider: AwsCredentialsProvider) {
         val shareableAwsCredentialsProvider = ShareableAwsCredentialsProvider(credentialsProvider)
         SharedData.shareInstance(
@@ -103,15 +121,6 @@ class VertxKinesisOrchestraImpl(
             vertx,
             KinesisAsyncClientFactory(vertx, options.region, options.kinesisEndpoint),
             KinesisAsyncClientFactory.SHARED_DATA_REF
-        )
-
-        SharedData.shareInstance(
-            vertx,
-            ShardStatePersistenceFactory(
-                options.shardProgressExpiration,
-                RedisKeyFactory(options.applicationName, options.streamName)
-            ),
-            ShardStatePersistenceFactory.SHARED_DATA_REF
         )
     }
 }

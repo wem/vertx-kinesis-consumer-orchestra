@@ -10,7 +10,7 @@ class RedisKeyFactory(applicationName: String, streamName: String) {
     fun createShardProgressFlagKey(shardId: ShardId): String = "${shardProgressKeyBase}$shardId"
     fun createShardProgressFlagKeyWildcard(): String = "${shardProgressKeyBase}*"
 
-    fun createShardSequenceInfoKey(shardId: ShardId): String = "${orchestraKeyBase}-sequence-$shardId"
+    fun createShardSequenceNumberKey(shardId: ShardId): String = "${orchestraKeyBase}-sequence-$shardId"
 
     fun createShardFinishedKey(shardId: ShardId): String = "${shardFinishedKeyBase}$shardId"
     fun createShardFinishedRedisKeyWildcard(): String = "${shardFinishedKeyBase}*"

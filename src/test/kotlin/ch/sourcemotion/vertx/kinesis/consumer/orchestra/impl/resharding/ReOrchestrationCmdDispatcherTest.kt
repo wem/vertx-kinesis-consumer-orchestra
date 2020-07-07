@@ -78,7 +78,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
             parentShardId
         )
         // We have to simulate that's the parent shard is flagged finished, as like by consumer verticle
-        shardStatePersistence.saveFinishedShard(parentShardId, 10000)
+        shardStatePersistenceService.saveFinishedShard(parentShardId, 10000)
         eventBus.send(reshardingEventParentShardFinished.getNotificationAddr(), reshardingEventParentShardFinished)
 
         // We need to send it twice, as this would singal that both parents are finished
@@ -90,7 +90,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
         )
 
         // We have to simulate that's the adjacent parent shard is flagged finished, as like by consumer verticle
-        shardStatePersistence.saveFinishedShard(adjacentParentShardId, 10000)
+        shardStatePersistenceService.saveFinishedShard(adjacentParentShardId, 10000)
         eventBus.send(
             reshardingEventParentShardFinished.getNotificationAddr(),
             reshardingEventAdjacentParentShardFinished
@@ -103,7 +103,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
             kinesisClient,
-            shardStatePersistence,
+            shardStatePersistenceService,
             defaultTestScope,
             redisOptions,
             eventBusBaseDispatching = eventBusCommunication,

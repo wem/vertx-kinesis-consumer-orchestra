@@ -6,14 +6,13 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingEventFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistenceFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.redis.client.Redis
-import io.vertx.redis.client.RedisAPI
 import kotlinx.coroutines.*
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -51,12 +50,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             .createKinesisAsyncClient(context)
     }
 
-    private val shardStatePersistence: ShardStatePersistence by lazy {
-        SharedData.getSharedInstance<ShardStatePersistenceFactory>(vertx, ShardStatePersistenceFactory.SHARED_DATA_REF)
-            .createShardStatePersistence(RedisAPI.api(redis))
+    private val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy {
+        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
     }
-
-    private var keepAliveTimerId: TimerId? = null
 
     /**
      * Running flag, if the verticle is still running. When the verticle  get stopped, this flag must be false.
@@ -87,7 +83,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             removeShardProgressFlag()
         }.onSuccess { logger.info { "Kinesis consumer verticle stopped successfully on $consumerInfo" } }
             .onFailure { logger.warn { "Unable to remove shard progress flag on $consumerInfo" } }
-        runCatching { shardStatePersistence.close() }.onFailure { logger.warn(it) { "Unable to close Redis client." } }
         runCatching { kinesisClient.close() }.onFailure { logger.warn(it) { "Unable to close Kinesis client." } }
     }
 
@@ -100,7 +95,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
         launch {
-            keepAliveTimerId = shardStatePersistence.startShardProgressAndKeepAlive(vertx, this, shardId)
+            shardStatePersistenceService.startShardProgressAndKeepAlive(shardId)
 
             val startPosition = getQueryStartPosition()
 
@@ -151,12 +146,13 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                             // Sequence number could be null here, as if the initial delivery of records did fail and
                             // the iterator was based just on latest, there is no sequence number available
                             nextPositionToFetch.sequenceNumber?.let { sequenceNumber ->
-                                shardStatePersistence.saveConsumerShardSequenceNumber(
+                                shardStatePersistenceService.saveConsumerShardSequenceNumber(
                                     shardId,
                                     sequenceNumber
                                 )
                             }
                             positionToFetch = nextPositionToFetch
+                            throttleJob.join()
                         }
                     } else {
                         onShardDidEnd()
@@ -206,7 +202,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         val streamDesc = kinesisClient.streamDescriptionWhenActiveAwait(options.streamName)
         persistShardIsFinished(streamDesc)
         removeShardProgressFlag()
-        shardStatePersistence.deleteShardSequenceNumber(shardId)
+        shardStatePersistenceService.deleteShardSequenceNumber(shardId)
 
         val reshardingInfo = ReshardingEventFactory(
             streamDesc,
@@ -218,7 +214,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private suspend fun persistShardIsFinished(streamDesc: StreamDescription) {
-        shardStatePersistence.saveFinishedShard(
+        shardStatePersistenceService.saveFinishedShard(
             shardId,
             // The expiration of the shard finished flag, will be an hour after the shard retention.
             // So it's ensured that we not lose the finished flag of this shard and avoid death data.
@@ -228,8 +224,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private suspend fun removeShardProgressFlag() {
-        keepAliveTimerId?.let { timerId -> vertx.cancelTimer(timerId.id) }
-        shardStatePersistence.flagShardNoMoreInProgress(shardId)
+        shardStatePersistenceService.flagShardNoMoreInProgress(shardId)
         logger.debug { "Remove $consumerInfo from in progress list" }
     }
 
@@ -240,7 +235,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                 QueryPosition(kinesisClient.getLatestShardIterator(options.streamName, shardId), null)
             }
             ShardIteratorStrategy.EXISTING_OR_LATEST -> {
-                val existingSequenceNumber = shardStatePersistence.getConsumerShardSequenceNumber(shardId)
+                val existingSequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
                 if (existingSequenceNumber.isNotNull()) {
                     logger.debug { "Use existing shard sequence number: \"$existingSequenceNumber\" for $consumerInfo" }
                     QueryPosition(

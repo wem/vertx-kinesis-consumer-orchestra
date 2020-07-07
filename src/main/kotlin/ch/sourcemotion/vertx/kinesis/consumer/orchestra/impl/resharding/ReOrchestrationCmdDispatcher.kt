@@ -7,8 +7,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIdList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isFalse
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardStatePersistence
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.requestAwait
@@ -41,7 +41,7 @@ abstract class ReOrchestrationCmdDispatcher(
     protected val vertx: Vertx,
     protected val streamName: String,
     private val kinesisClient: KinesisAsyncClient,
-    private val shardStatePersistence: ShardStatePersistence,
+    private val shardStatePersistenceService: ShardStatePersistenceServiceAsync,
     protected val scope: CoroutineScope,
     protected val reshardingEventHandler: () -> Unit
 ) {
@@ -51,7 +51,7 @@ abstract class ReOrchestrationCmdDispatcher(
             applicationName: String,
             streamName: String,
             kinesisClient: KinesisAsyncClient,
-            shardStatePersistence: ShardStatePersistence,
+            shardStatePersistence: ShardStatePersistenceServiceAsync,
             scope: CoroutineScope,
             redisOptions: RedisOptions,
             eventBusBaseDispatching: Boolean = vertx.isClustered,
@@ -116,9 +116,9 @@ abstract class ReOrchestrationCmdDispatcher(
      * @return If the ready to get re-orchestrated or wait for further event.
      */
     private suspend fun isReOrchestrationReadyAfterMerge(mergeReshardingEvent: MergeReshardingEvent): Boolean {
-        return (shardStatePersistence.getMergeReshardingEventCount(mergeReshardingEvent.childShardId) == 2).also { canReOrchestrate ->
+        return (shardStatePersistenceService.getMergeReshardingEventCount(mergeReshardingEvent.childShardId) == 2).also { canReOrchestrate ->
             if (canReOrchestrate) {
-                shardStatePersistence.deleteMergeReshardingEventCount(mergeReshardingEvent.childShardId)
+                shardStatePersistenceService.deleteMergeReshardingEventCount(mergeReshardingEvent.childShardId)
             }
         }
     }
@@ -154,7 +154,7 @@ abstract class ReOrchestrationCmdDispatcher(
             val startingSequenceNumber =
                 streamDescription.shards().first { it.shardIdTyped() == childShardId }.sequenceNumberRange()
                     .atSequenceNumberTyped()
-            shardStatePersistence.saveConsumerShardSequenceNumber(childShardId, startingSequenceNumber)
+            shardStatePersistenceService.saveConsumerShardSequenceNumber(childShardId, startingSequenceNumber)
         }
     }
 
@@ -170,7 +170,7 @@ class EventBusReOrchestrationCmdDispatcher(
     vertx: Vertx,
     streamName: String,
     kinesisClient: KinesisAsyncClient,
-    shardStatePersistence: ShardStatePersistence,
+    shardStatePersistence: ShardStatePersistenceServiceAsync,
     scope: CoroutineScope,
     reshardingEventHandler: () -> Unit
 ) : ReOrchestrationCmdDispatcher(
@@ -224,7 +224,7 @@ class RedisReOrchestrationCmdDispatcher(
     applicationName: String,
     streamName: String,
     kinesisClient: KinesisAsyncClient,
-    shardStatePersistence: ShardStatePersistence,
+    shardStatePersistence: ShardStatePersistenceServiceAsync,
     scope: CoroutineScope,
     private val redisOptions: RedisOptions,
     reshardingEventHandler: () -> Unit
