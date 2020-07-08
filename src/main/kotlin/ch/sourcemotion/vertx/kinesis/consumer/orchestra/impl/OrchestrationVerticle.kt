@@ -5,10 +5,12 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadConfiguration
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle.Companion.CONSUMER_START_CMD_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReOrchestrationCmdDispatcher
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardProcessingBundle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.DeploymentOptions
@@ -89,14 +91,16 @@ class OrchestrationVerticle : CoroutineVerticle() {
 
         val shardIdsInProgress = shardStatePersistence.getShardIdsInProgress()
         val finishedShardIds = shardStatePersistence.getFinishedShardIds()
+        // Available shards are the existing one, they are not already in progress or even finished
         val availableShards = streamDescription.shards()
+            .filterNot { shard -> shardIdsInProgress.contains(shard.shardIdTyped()) }
+            .filterNot { shard -> finishedShardIds.contains(shard.shardIdTyped()) }
 
-        val processingBundle = OrchestraShardComposition(
+        val processingBundle = ShardProcessingBundle.create(
             availableShards,
-            shardIdsInProgress,
             finishedShardIds,
             options.loadConfiguration
-        ).createShardProcessingBundle()
+        )
 
         logger.info { "This orchestra will process the shards \"${processingBundle.shardIds.joinToString(", ")}\" on stream \"${streamDescription.streamName()}\"" }
 
