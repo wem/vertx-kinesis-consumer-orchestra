@@ -9,4 +9,9 @@ for the shard state : https://github.com/wem/vertx-kinesis-consumer-orchestra/wi
 ### Improved
 #### Redis connection handling
 - The VKCO is using exactly 2 connection to Redis by default. The one on the default implementation of `ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService`
-has now proper reconnecting capabilities. 
+has now proper reconnecting capabilities.
+ 
+### Fixed
+#### #11 Ignore non existing parents on orchestration
+- When the VKCO fetches shards from Kinesis to orchestrate, (parent) shards they no more exists are ignored now. Previously VKCO
+only did visit its own state (shard state persistence).
