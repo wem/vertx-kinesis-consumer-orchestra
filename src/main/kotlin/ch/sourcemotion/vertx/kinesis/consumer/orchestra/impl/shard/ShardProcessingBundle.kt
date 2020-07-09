@@ -10,71 +10,81 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.*
 
 
 /**
- * Processing bundle. A bundle should be processed at once by an orchestra instance. Either a whole bundle can get processed, or it will skipped.
+ * Processing bundle which contains / defines the shards an orchestra instance will process / consume.
  */
 data class ShardProcessingBundle(val shardIds: ShardIdList) {
     companion object {
-        fun createShardProcessingBundle(
-            shards: ShardList,
-            finishedShardIds: ShardIdList
+        fun create(
+            availableShards: ShardList,
+            finishedShardIds: ShardIdList,
+            loadConfiguration: LoadConfiguration
         ): ShardProcessingBundle {
-            val notFinishedShardIds = mutableListOf<ShardId>()
-            val pendingShard = shards.toMutableList()
+            val availableShardIds = availableShards.map { shard -> shard.shardIdTyped() }
+            val processingShardIds = mutableListOf<ShardId>()
+            val pendingShards = availableShards.toMutableList()
 
-            notFinishedShardIds.addAll(
+            // Add not finished merge parents for processing
+            processingShardIds.addAll(
                 getNotFinishedMergeParents(
-                    pendingShard.filter { it.isMergedChild() },
-                    finishedShardIds
+                    pendingShards.filter { it.isMergedChild() },
+                    finishedShardIds,
+                    availableShardIds
                 )
             )
+            pendingShards.removeAll { processingShardIds.contains(it.shardIdTyped()) }
 
-            pendingShard.removeAll { notFinishedShardIds.contains(it.shardIdTyped()) }
-
-            notFinishedShardIds.addAll(
+            // Add not finished split parents for processing
+            processingShardIds.addAll(
                 getNotFinishedSplitParents(
-                    pendingShard.filter { it.isSplitChild() },
-                    finishedShardIds
+                    pendingShards.filter { it.isSplitChild() },
+                    finishedShardIds,
+                    availableShardIds
                 )
             )
+            pendingShards.removeAll { processingShardIds.contains(it.shardIdTyped()) }
 
-            pendingShard.removeAll { notFinishedShardIds.contains(it.shardIdTyped()) }
-
-            notFinishedShardIds.addAll(
-                pendingShard.asSequence().filterNot {
-                    // prevent split parents as proceed before
-                    it.isSplitChild() && notFinishedShardIds.contains(it.parentShardIdTyped())
+            processingShardIds.addAll(
+                pendingShards.asSequence().filterNot {
+                    // prevent split children from processing before their parents are done
+                    it.isSplitChild() && processingShardIds.contains(it.parentShardIdTyped())
                 }.filterNot {
                     it.isMergedChild() &&
-                            // prevent merge parents as proceed before
-                            (notFinishedShardIds.contains(it.parentShardIdTyped()) ||
-                                    notFinishedShardIds.contains(it.adjacentParentShardIdTyped()))
-                }
-                    .map { it.shardIdTyped() }
-                    .filterNot { finishedShardIds.contains(it) }.filterNot { notFinishedShardIds.contains(it) }.toList()
+                            // prevent merge children from processing before their both parents are done
+                            (processingShardIds.contains(it.parentShardIdTyped()) ||
+                                    processingShardIds.contains(it.adjacentParentShardIdTyped()))
+                }.map { it.shardIdTyped() }
+                    .filterNot { finishedShardIds.contains(it) }.filterNot { processingShardIds.contains(it) }.toList()
             )
 
-            return ShardProcessingBundle(notFinishedShardIds)
+            return ShardProcessingBundle(processingShardIds).adjustBundle(loadConfiguration)
         }
 
         /**
-         * @return Shard id list of merge resharding parent shards, they are not flagged as finished.
+         * @return Shard id list of merge resharding parent shards, they are not flagged as finished and are available.
+         * The available check is necessary, because when the shards are not recently created and there is no orchestra
+         * persistence state present.
          */
         private fun getNotFinishedMergeParents(
             mergedChildren: ShardList,
-            finishedShardIds: ShardIdList
+            finishedShardIds: ShardIdList,
+            availableShardIds: ShardIdList
         ): ShardIdList =
             mergedChildren.flatMap { listOf(it.parentShardIdTyped(), it.adjacentParentShardIdTyped()) }.filterNotNull()
-                .filterNot { finishedShardIds.contains(it) }
+                .filter { availableShardIds.contains(it) }.filterNot { finishedShardIds.contains(it) }
 
         /**
          * @return Shard id list of split resharding parent shards, they are not flagged as finished.
+         * The available check is necessary, because when the shards are not recently created and there is no orchestra
+         * persistence state present.
          */
         private fun getNotFinishedSplitParents(
             splitChildren: ShardList,
-            finishedShardIds: ShardIdList
+            finishedShardIds: ShardIdList,
+            availableShardIds: ShardIdList
         ): ShardIdList =
             splitChildren.mapNotNull { it.parentShardIdTyped() }.filterNot { finishedShardIds.contains(it) }
-                .distinctBy { it } // Distinct because one shard could be parent of two children
+                .filter { availableShardIds.contains(it) }
+                .distinct() // Distinct because split parent shard is parent of two children
     }
 
     fun adjustBundle(loadConfiguration: LoadConfiguration): ShardProcessingBundle {
