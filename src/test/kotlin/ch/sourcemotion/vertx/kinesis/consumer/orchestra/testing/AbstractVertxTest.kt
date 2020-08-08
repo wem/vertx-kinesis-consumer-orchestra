@@ -44,7 +44,7 @@ abstract class AbstractVertxTest {
     }
 
 
-    protected fun asyncTest(testContext: VertxTestContext, block: suspend () -> Unit) {
+    protected fun asyncTest(testContext: VertxTestContext, block: suspend CoroutineScope.() -> Unit) {
         defaultTestScope.launch {
             runCatching { block() }
                 .onSuccess { testContext.completeNow() }
@@ -55,7 +55,7 @@ abstract class AbstractVertxTest {
     protected fun asyncTest(
         testContext: VertxTestContext,
         checkpoint: Checkpoint,
-        block: suspend (Checkpoint) -> Unit
+        block: suspend CoroutineScope.(Checkpoint) -> Unit
     ) {
         defaultTestScope.launch {
             runCatching { block(checkpoint) }
@@ -67,7 +67,7 @@ abstract class AbstractVertxTest {
     protected fun asyncTest(
         testContext: VertxTestContext,
         checkpoints: Int,
-        block: suspend (Checkpoint) -> Unit
+        block: suspend CoroutineScope.(Checkpoint) -> Unit
     ) {
         asyncTest(testContext, testContext.checkpoint(checkpoints + 1), block)
     }
