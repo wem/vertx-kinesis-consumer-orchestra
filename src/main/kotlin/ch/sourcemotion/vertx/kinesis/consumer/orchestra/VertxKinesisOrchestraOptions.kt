@@ -1,6 +1,5 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestrationVerticleOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.json.JsonObject
 import io.vertx.redis.client.RedisOptions
@@ -149,22 +148,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_RECORDS_PER_POLL_LIMIT = 10000
         val DEFAULT_REGION: Region = Region.EU_WEST_1
     }
-
-    internal fun asOrchestraVerticleOptions() = OrchestrationVerticleOptions(
-        applicationName,
-        streamName,
-        kinesisPollInterval.toMillis(),
-        recordsPerPollLimit,
-        redisOptions,
-        shardIteratorStrategy,
-        loadConfiguration,
-        errorHandling,
-        consumerDeploymentLockExpiration.toMillis(),
-        consumerDeploymentLockRetryInterval.toMillis(),
-        reshardingNotificationAddress,
-        consumerVerticleClass,
-        consumerVerticleConfig.map
-    )
 }
 
 enum class ErrorHandling {

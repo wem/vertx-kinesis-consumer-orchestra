@@ -3,6 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadConfiguration
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle.Companion.CONSUMER_START_CMD_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
@@ -177,4 +178,20 @@ internal class OrchestrationVerticleOptions(
     var reshardingNotificationAddress: String,
     var consumerVerticleClass: String,
     var consumerVerticleConfig: Map<String, Any>
+)
+
+internal fun VertxKinesisOrchestraOptions.asOrchestraVerticleOptions() = OrchestrationVerticleOptions(
+    applicationName,
+    streamName,
+    kinesisPollInterval.toMillis(),
+    recordsPerPollLimit,
+    redisOptions,
+    shardIteratorStrategy,
+    loadConfiguration,
+    errorHandling,
+    consumerDeploymentLockExpiration.toMillis(),
+    consumerDeploymentLockRetryInterval.toMillis(),
+    reshardingNotificationAddress,
+    consumerVerticleClass,
+    consumerVerticleConfig.map
 )
