@@ -13,7 +13,10 @@ import io.vertx.core.Handler
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.redis.client.Redis
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
@@ -38,9 +41,15 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         config.mapTo(KinesisConsumerVerticleOptions::class.java)
     }
 
-    protected lateinit var shardId: ShardId
     private val recordFetcher: RecordFetcher by lazy {
-        RecordFetcher(kinesisClient, options.recordsPerPollLimit, options.streamName, shardId) { consumerInfo }
+        RecordFetcher(
+            kinesisClient,
+            options.recordsPerPollLimit,
+            options.streamName,
+            shardId,
+            this,
+            options.kinesisPollIntervalMillis
+        ) { consumerInfo }
     }
 
     private val redis by lazy { Redis.createClient(vertx, options.redisOptions) }
@@ -53,6 +62,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy {
         ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
     }
+
+    protected lateinit var shardId: ShardId
 
     /**
      * Running flag, if the verticle is still running. When the verticle  get stopped, this flag must be false.
@@ -69,6 +80,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     override suspend fun stop() {
         running = false
+        logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         suspendCancellableCoroutine<Unit> { cont ->
             pollingJob?.invokeOnCompletion {
                 if (it.isNotNull()) {
@@ -76,7 +88,10 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                 } else {
                     logger.debug { "\"$consumerInfo\" stopped" }
                 }
-                cont.resume(Unit)
+                launch {
+                    recordFetcher.runCatching { close() }
+                    cont.resume(Unit)
+                }
             }
         }
         runCatching {
@@ -110,20 +125,18 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun startPolling(fetchStartPosition: QueryPosition) {
+    private suspend fun startPolling(fetchStartPosition: QueryPosition) {
         logger.debug { "Start polling for $consumerInfo" }
         var positionToFetch = fetchStartPosition
+
+        // We not wait on first fetch
+        recordFetcher.fetchNextRecords(positionToFetch, false)
+
         pollingJob = launch {
             while (isActive && running) {
                 runCatching {
-                    recordFetcher.fetchNextRecords(positionToFetch)
+                    recordFetcher.getNextRecords()
                 }.onSuccess { recordsResponse ->
-                    // We throttle as coroutine, so when the record processing will take longer than the configured
-                    // interval, we can continue polling immediately afterwards.
-                    val throttleJob = launch {
-                        delay(options.kinesisPollIntervalMillis)
-                    }
-
                     val records = recordsResponse.records()
                     // Can be null if the shard did end
                     val nextIterator = recordsResponse.nextShardIterator()?.asShardIteratorTyped()
@@ -134,13 +147,24 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
                     val nextPositionIfDeliveredSuccessful = nextIterator?.let { QueryPosition(it, nextSequenceNumber) }
 
+                    // We are optimistic and prefetch
+                    nextPositionIfDeliveredSuccessful?.let { recordFetcher.fetchNextRecords(it) }
+
                     val nextPositionToFetch = runCatching {
                         deliver(records)
                         nextPositionIfDeliveredSuccessful
                     }.getOrElse { throwable ->
-                        handleConsumerFailure(throwable, nextPositionIfDeliveredSuccessful, positionToFetch)
+                        handleConsumerFailure(throwable, nextPositionIfDeliveredSuccessful, positionToFetch).also { positionAfterFailure ->
+                            positionAfterFailure?.let {
+                                // Only restart fetching if it's really needed
+                                if (positionAfterFailure != nextPositionIfDeliveredSuccessful) {
+                                    recordFetcher.restartFetching(it)
+                                }
+                            }
+                        }
                     }
 
+                    // Not last records on the shard
                     if (nextPositionToFetch.isNotNull()) {
                         if (nextPositionToFetch != positionToFetch) {
                             // Sequence number could be null here, as if the initial delivery of records did fail and
@@ -152,7 +176,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                                 )
                             }
                             positionToFetch = nextPositionToFetch
-                            throttleJob.join()
                         }
                     } else {
                         onShardDidEnd()
@@ -172,7 +195,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         return if (retryFromFailedRecord(throwable)) {
             if (throwable is KinesisConsumerException) {
                 val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
-                val iteratorAtFailedSequence = kinesisClient.getShardIteratorBySequenceNumber(
+                val iteratorAtFailedSequence = kinesisClient.getShardIteratorBySequenceNumberAwait(
                     options.streamName,
                     shardId,
                     failedSequence
@@ -232,14 +255,14 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         return when (options.shardIteratorStrategy) {
             ShardIteratorStrategy.FORCE_LATEST -> {
                 logger.debug { "Force ${ShardIteratorType.LATEST.name} shard iterator on $consumerInfo" }
-                QueryPosition(kinesisClient.getLatestShardIterator(options.streamName, shardId), null)
+                QueryPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
             }
             ShardIteratorStrategy.EXISTING_OR_LATEST -> {
                 val existingSequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
                 if (existingSequenceNumber.isNotNull()) {
                     logger.debug { "Use existing shard sequence number: \"$existingSequenceNumber\" for $consumerInfo" }
                     QueryPosition(
-                        kinesisClient.getShardIteratorBySequenceNumber(
+                        kinesisClient.getShardIteratorBySequenceNumberAwait(
                             options.streamName,
                             shardId,
                             existingSequenceNumber
@@ -247,7 +270,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     )
                 } else {
                     logger.debug { "Use ${ShardIteratorType.LATEST.name} shard iterator for $consumerInfo because no existing position found" }
-                    QueryPosition(kinesisClient.getLatestShardIterator(options.streamName, shardId), null)
+                    QueryPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
                 }
             }
         }
