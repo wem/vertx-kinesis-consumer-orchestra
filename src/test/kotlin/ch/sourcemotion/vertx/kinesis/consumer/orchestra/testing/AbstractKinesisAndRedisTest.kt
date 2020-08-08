@@ -12,13 +12,12 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
-import io.vertx.core.DeploymentOptions
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.core.deploymentOptionsOf
 import kotlinx.coroutines.future.await
 import mu.KLogging
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.testcontainers.containers.localstack.LocalStackContainer
 import org.testcontainers.junit.jupiter.Container
@@ -33,7 +32,7 @@ import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.math.BigInteger
 
 
-internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
+internal abstract class AbstractKinesisAndRedisTest(private val deployShardPersistence: Boolean = true) : AbstractRedisTest() {
 
     companion object : KLogging() {
         val CREDENTIALS_PROVIDER: StaticCredentialsProvider =
@@ -65,27 +64,34 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
         asyncTest(testContext) {
             shareCredentialsProvider()
             createAndShareKinesisAsyncClientFactory().createKinesisAsyncClient(context)
-            deployShardStatePersistenceService()
+            if (deployShardPersistence) {
+                deployShardStatePersistenceService()
+            }
         }
 
 
     /**
-     * Cleanup Kinesis streams after each test function as the Kinesis instance is per the class.
+     * Cleanup Kinesis streams before each test function as the Kinesis instance is per the class.
      */
-    @AfterEach
-    internal fun cleanupKinesisStreams(testContext: VertxTestContext) = asyncTest(testContext) {
-        kinesisClient.listStreams().await().streamNames().forEach { streamName ->
-            kinesisClient.deleteStream { builder ->
-                builder.streamName(streamName)
-            }.await()
-        }
+    @BeforeEach
+    fun cleanupKinesisStreams(testContext: VertxTestContext) = asyncTest(testContext) {
+        val streamNames = kinesisClient.listStreams().await().streamNames()
+        if (streamNames.isNotEmpty()) {
+            streamNames.forEach { streamName ->
+                kinesisClient.deleteStream { builder ->
+                    builder.streamName(streamName)
+                }.await()
+            }
 
-        // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
-        var streamsAfterDeletion = kinesisClient.listStreams().await()
-        while (streamsAfterDeletion.streamNames().isNotEmpty()) {
-            streamsAfterDeletion = kinesisClient.listStreams().await()
+            // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
+            var streamsAfterDeletion = kinesisClient.listStreams().await()
+            while (streamsAfterDeletion.streamNames().isNotEmpty()) {
+                streamsAfterDeletion = kinesisClient.listStreams().await()
+            }
+            logger.info { "Kinesis streams cleaned up" }
+        } else {
+            logger.info { "Kinesis stream clean up not necessary" }
         }
-        logger.info { "Kinesis streams deleted" }
     }
 
     private fun shareCredentialsProvider() {
@@ -104,9 +110,7 @@ internal abstract class AbstractKinesisAndRedisTest : AbstractRedisTest() {
             VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
         )
         vertx.deployVerticleAwait(
-            RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
-                JsonObject.mapFrom(options)
-            )
+            RedisShardStatePersistenceServiceVerticle::class.java.name, deploymentOptionsOf(JsonObject.mapFrom(options))
         )
     }
 
