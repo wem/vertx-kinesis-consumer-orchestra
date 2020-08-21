@@ -43,7 +43,7 @@ class RecordFetcher(
 
     /**
      * Finally fetching of records. Catches the case when the shard iterator did expire. In this case, the iterator will be
-     * refreshed by the [positionToFetch.sequenceNumber] and retried to fetch afterwards.
+     * refreshed by the [positionToFetch.sequenceNumber] and fetch will be retried afterwards.
      */
     private suspend fun fetchNextRecords(positionToFetch: QueryPosition): GetRecordsResponse {
         return runCatching {
