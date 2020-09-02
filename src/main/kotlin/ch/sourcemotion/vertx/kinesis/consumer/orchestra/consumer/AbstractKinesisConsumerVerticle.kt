@@ -125,12 +125,12 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private suspend fun startPolling(fetchStartPosition: QueryPosition) {
+    private suspend fun startPolling(fetchStartPosition: FetchPosition) {
         logger.debug { "Start polling for $consumerInfo" }
-        var positionToFetch = fetchStartPosition
+        var currentFetchPosition = fetchStartPosition
 
-        // We not wait on first fetch
-        recordFetcher.fetchNextRecords(positionToFetch, false)
+        // We not wait on first fetch, as the last fetch operation was a longer time ago.
+        recordFetcher.fetchNextRecords(currentFetchPosition, false)
 
         pollingJob = launch {
             while (isActive && running) {
@@ -138,45 +138,26 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     recordFetcher.getNextRecords()
                 }.onSuccess { recordsResponse ->
                     val records = recordsResponse.records()
-                    // Can be null if the shard did end
-                    val nextIterator = recordsResponse.nextShardIterator()?.asShardIteratorTyped()
+                    // Can be null if the shard did end. This is the next shard iterator in a usual (not failure) case
+                    val usualNextIterator = recordsResponse.nextShardIterator()?.asShardIteratorTyped()
 
                     // If the list of queried records was empty, we still use the previous sequence number, as it didn't change
-                    val nextSequenceNumber = records.lastOrNull()?.sequenceNumber()?.asSequenceNumberAfter()
-                        ?: positionToFetch.sequenceNumber
+                    val usualNextSequenceNumber = records.lastOrNull()?.sequenceNumber()?.asSequenceNumberAfter()
+                        ?: currentFetchPosition.sequenceNumber
 
-                    val nextPositionIfDeliveredSuccessful = nextIterator?.let { QueryPosition(it, nextSequenceNumber) }
+                    val usualNextPosition = usualNextIterator?.let { FetchPosition(it, usualNextSequenceNumber) }
 
                     // We are optimistic and prefetch
-                    nextPositionIfDeliveredSuccessful?.let { recordFetcher.fetchNextRecords(it) }
-
-                    val nextPositionToFetch = runCatching {
-                        deliver(records)
-                        nextPositionIfDeliveredSuccessful
-                    }.getOrElse { throwable ->
-                        handleConsumerFailure(throwable, nextPositionIfDeliveredSuccessful, positionToFetch).also { positionAfterFailure ->
-                            positionAfterFailure?.let {
-                                // Only restart fetching if it's really needed
-                                if (positionAfterFailure != nextPositionIfDeliveredSuccessful) {
-                                    recordFetcher.restartFetching(it)
-                                }
-                            }
-                        }
+                    if (usualNextPosition.isNotNull()) {
+                        recordFetcher.fetchNextRecords(usualNextPosition)
                     }
 
-                    // Not last records on the shard
-                    if (nextPositionToFetch.isNotNull()) {
-                        if (nextPositionToFetch != positionToFetch) {
-                            // Sequence number could be null here, as if the initial delivery of records did fail and
-                            // the iterator was based just on latest, there is no sequence number available
-                            nextPositionToFetch.sequenceNumber?.let { sequenceNumber ->
-                                shardStatePersistenceService.saveConsumerShardSequenceNumber(
-                                    shardId,
-                                    sequenceNumber
-                                )
-                            }
-                            positionToFetch = nextPositionToFetch
-                        }
+                    val finalNextFetchPosition = deliverWithFailureHandling(records, usualNextPosition, currentFetchPosition)
+
+                    // Shard did not end
+                    if (finalNextFetchPosition.isNotNull()) {
+                        saveFetchPositionIfUpdated(currentFetchPosition, finalNextFetchPosition)
+                        currentFetchPosition = finalNextFetchPosition
                     } else {
                         onShardDidEnd()
                     }
@@ -187,11 +168,43 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
+    private suspend fun saveFetchPositionIfUpdated(
+        currentFetchPosition: FetchPosition,
+        nextFetchPosition: FetchPosition
+    ) {
+        if (nextFetchPosition != currentFetchPosition) {
+            // Sequence number could be null here if the initial delivery of records did fail and
+            // the iterator was based just on latest, there is no sequence number available
+            if (nextFetchPosition.sequenceNumber.isNotNull()) {
+                shardStatePersistenceService.saveConsumerShardSequenceNumber(
+                    shardId,
+                    nextFetchPosition.sequenceNumber
+                )
+            }
+        }
+    }
+
+    private suspend fun deliverWithFailureHandling(
+        records: MutableList<Record>,
+        usualNextPosition: FetchPosition?,
+        currentFetchPosition: FetchPosition
+    ) = runCatching {
+        deliver(records)
+        usualNextPosition
+    }.getOrElse { throwable ->
+        val nextFetchPositionAccordingFailure = handleConsumerFailure(throwable, usualNextPosition, currentFetchPosition)
+        // If a failure did happen and the
+        if (nextFetchPositionAccordingFailure.isNotNull() && nextFetchPositionAccordingFailure != usualNextPosition) {
+            recordFetcher.restartFetching(nextFetchPositionAccordingFailure)
+        }
+        nextFetchPositionAccordingFailure
+    }
+
     private suspend fun handleConsumerFailure(
         throwable: Throwable,
-        nextPosition: QueryPosition?,
-        previousPosition: QueryPosition
-    ): QueryPosition? {
+        nextPosition: FetchPosition?,
+        previousPosition: FetchPosition
+    ): FetchPosition? {
         return if (retryFromFailedRecord(throwable)) {
             if (throwable is KinesisConsumerException) {
                 val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
@@ -204,7 +217,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     "Record processing did fail on \"$consumerInfo\". All information available to retry" +
                             "from failed record."
                 }
-                QueryPosition(iteratorAtFailedSequence, failedSequence)
+                FetchPosition(iteratorAtFailedSequence, failedSequence)
             } else {
                 logger.warn(throwable) {
                     "Kinesis consumer configured to retry from failed record, but no record " +
@@ -251,17 +264,17 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         logger.debug { "Remove $consumerInfo from in progress list" }
     }
 
-    private suspend fun getQueryStartPosition(): QueryPosition {
+    private suspend fun getQueryStartPosition(): FetchPosition {
         return when (options.shardIteratorStrategy) {
             ShardIteratorStrategy.FORCE_LATEST -> {
                 logger.debug { "Force ${ShardIteratorType.LATEST.name} shard iterator on $consumerInfo" }
-                QueryPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
+                FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
             }
             ShardIteratorStrategy.EXISTING_OR_LATEST -> {
                 val existingSequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
                 if (existingSequenceNumber.isNotNull()) {
                     logger.debug { "Use existing shard sequence number: \"$existingSequenceNumber\" for $consumerInfo" }
-                    QueryPosition(
+                    FetchPosition(
                         kinesisClient.getShardIteratorBySequenceNumberAwait(
                             options.streamName,
                             shardId,
@@ -270,7 +283,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     )
                 } else {
                     logger.debug { "Use ${ShardIteratorType.LATEST.name} shard iterator for $consumerInfo because no existing position found" }
-                    QueryPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
+                    FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
                 }
             }
         }
@@ -299,7 +312,4 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     protected abstract fun onRecords(records: List<Record>, handler: Handler<AsyncResult<Void>>)
 
     private val consumerInfo by lazy { "{ application: \"${options.applicationName}\", stream: \"${options.streamName}\", shard: \"${shardId}\", verticle: \"${this::class.java.name}\" }" }
-
 }
-
-data class QueryPosition(val iterator: ShardIterator, val sequenceNumber: SequenceNumber?)

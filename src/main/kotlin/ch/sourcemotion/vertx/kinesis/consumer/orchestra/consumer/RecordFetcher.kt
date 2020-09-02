@@ -26,12 +26,12 @@ class RecordFetcher(
     /**
      * Cancel of the previous fetching job and start a new on the give position.
      */
-    fun restartFetching(positionToFetch: QueryPosition, wait: Boolean = true) {
+    fun restartFetching(positionToFetch: FetchPosition, wait: Boolean = true) {
         cancelPendingFetchJob("Fetching restart")
         fetchNextRecords(positionToFetch, wait)
     }
 
-    fun fetchNextRecords(positionToFetch: QueryPosition, wait: Boolean = true) {
+    fun fetchNextRecords(positionToFetch: FetchPosition, wait: Boolean = true) {
         fetchRecordsJob = scope.async {
             if (wait) {
                 delay(fetchDelayMillis)
@@ -45,7 +45,7 @@ class RecordFetcher(
      * Finally fetching of records. Catches the case when the shard iterator did expire. In this case, the iterator will be
      * refreshed by the [positionToFetch.sequenceNumber] and fetch will be retried afterwards.
      */
-    private suspend fun fetchNextRecords(positionToFetch: QueryPosition): GetRecordsResponse {
+    private suspend fun fetchNextRecords(positionToFetch: FetchPosition): GetRecordsResponse {
         return runCatching {
             kinesisClient.getRecords {
                 it.shardIterator("${positionToFetch.iterator}")
@@ -85,6 +85,7 @@ class RecordFetcher(
     suspend fun getNextRecords(): GetRecordsResponse = fetchRecordsJob?.await()
         ?: throw WrongFetchingOrderException("Please call prepareFetchRecords() before getNextRecords()")
 
-    class CancelFetchJobException(message: String) : CancellationException(message)
-    class WrongFetchingOrderException(msg: String) : Exception(msg)
 }
+
+class CancelFetchJobException(message: String) : CancellationException(message)
+class WrongFetchingOrderException(msg: String) : Exception(msg)
