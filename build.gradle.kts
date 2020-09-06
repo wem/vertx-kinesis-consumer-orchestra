@@ -43,11 +43,15 @@ dependencies {
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
     api(awsSdk("kinesis"))
+    api(awsSdk("dynamodb"))
     api(awsSdk("netty-nio-client"))
     api(awsSdk("sts"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
 
-    api("io.reactiverse:vertx-aws-sdk:${libVersion("vertx-aws-sdk")}")
+    api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}") {
+        exclude(group = "software.amazon.awssdk", module = "*")
+    }
+
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${dependencyManagement.importedProperties["jackson.version"]}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${dependencyManagement.importedProperties["jackson.version"]}")
     api("io.github.microutils:kotlin-logging:${libVersion("kotlin-logging")}")
