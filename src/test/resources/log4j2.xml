@@ -10,7 +10,10 @@
     </Appenders>
     <Loggers>
         <Logger name="io.netty" level="WARN"/>
-        <Root level="DEBUG">
+        <Logger name="software.amazon" level="WARN"/>
+        <Logger name="com.github.dockerjava" level="WARN"/>
+        <Logger name="org.testcontainers" level="WARN"/>
+        <Root level="TRACE">
             <AppenderRef ref="Console"/>
         </Root>
     </Loggers>

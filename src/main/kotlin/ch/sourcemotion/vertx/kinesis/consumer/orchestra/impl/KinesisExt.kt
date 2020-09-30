@@ -12,23 +12,23 @@ import software.amazon.awssdk.services.kinesis.model.StreamStatus
  * has status [StreamStatus.ACTIVE] so we are based on actual state.
  */
 suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
-    var description = streamDescription(streamName)
+    var description = streamDescriptionAwait(streamName)
     while (description.streamStatus() != StreamStatus.ACTIVE) {
-        description = streamDescription(streamName)
+        description = streamDescriptionAwait(streamName)
     }
     return description
 }
 
-private suspend fun KinesisAsyncClient.streamDescription(streamName: String): StreamDescription = describeStream {
+private suspend fun KinesisAsyncClient.streamDescriptionAwait(streamName: String): StreamDescription = describeStream {
     it.streamName(streamName)
 }.await().streamDescription()
 
-suspend fun KinesisAsyncClient.getLatestShardIterator(
+suspend fun KinesisAsyncClient.getLatestShardIteratorAwait(
     streamName: String,
     shardId: ShardId
-) = getShardIterator(streamName, ShardIteratorType.LATEST, shardId)
+) = getShardIteratorAwait(streamName, ShardIteratorType.LATEST, shardId)
 
-suspend fun KinesisAsyncClient.getShardIterator(
+suspend fun KinesisAsyncClient.getShardIteratorAwait(
     streamName: String,
     shardIteratorType: ShardIteratorType,
     shardId: ShardId,
@@ -42,7 +42,7 @@ suspend fun KinesisAsyncClient.getShardIterator(
     }.await().shardIterator().asShardIteratorTyped()
 }
 
-suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumber(
+suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumberAwait(
     streamName: String,
     shardId: ShardId,
     sequenceNumber: SequenceNumber
@@ -52,5 +52,5 @@ suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumber(
     } else {
         ShardIteratorType.AT_SEQUENCE_NUMBER
     }
-    return getShardIterator(streamName, iteratorType, shardId, sequenceNumber)
+    return getShardIteratorAwait(streamName, iteratorType, shardId, sequenceNumber)
 }

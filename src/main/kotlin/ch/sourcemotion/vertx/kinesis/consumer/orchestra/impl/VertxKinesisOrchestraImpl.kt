@@ -17,6 +17,7 @@ import io.vertx.kotlin.core.undeployAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import mu.KLogging
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 
 class VertxKinesisOrchestraImpl(
@@ -24,8 +25,11 @@ class VertxKinesisOrchestraImpl(
     private val options: VertxKinesisOrchestraOptions
 ) : VertxKinesisOrchestra {
 
+    private companion object : KLogging()
+
     private var running = false
-    private lateinit var deploymentId: String
+    private lateinit var orchestrationVerticleDeploymentId: String
+    private lateinit var shardPersistenceDeploymentId: String
 
     override fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>) {
         CoroutineScope(vertx.dispatcher()).launch {
@@ -52,7 +56,7 @@ class VertxKinesisOrchestraImpl(
         val check = JsonObject.mapFrom(options.asOrchestraVerticleOptions())
         check.mapTo(OrchestrationVerticleOptions::class.java)
 
-        deploymentId =
+        orchestrationVerticleDeploymentId =
             runCatching {
                 vertx.deployVerticleAwait(
                     OrchestrationVerticle::class.java.name,
@@ -64,15 +68,22 @@ class VertxKinesisOrchestraImpl(
                     it
                 )
             }
-        vertx.orCreateContext.addCloseHook {
-            if (running) {
-                vertx.undeploy(deploymentId)
-                running = false
-            }
-        }
+        scheduleLastDefenseClose()
         running = true
 
         return this
+    }
+
+    private fun scheduleLastDefenseClose() {
+        val context = vertx.orCreateContext
+        context.addCloseHook {
+            if (running) {
+                logger.info { "Close Kinesis consumer orchestra by hook" }
+                CoroutineScope(context.dispatcher()).launch {
+                    closeAwait()
+                }
+            }
+        }
     }
 
     override fun close(handler: Handler<AsyncResult<Unit>>) {
@@ -85,7 +96,8 @@ class VertxKinesisOrchestraImpl(
 
     override suspend fun closeAwait() {
         if (running) {
-            vertx.undeployAwait(deploymentId)
+            vertx.undeployAwait(orchestrationVerticleDeploymentId)
+            vertx.undeployAwait(shardPersistenceDeploymentId)
             running = false
         }
     }
@@ -97,7 +109,7 @@ class VertxKinesisOrchestraImpl(
             options.redisOptions,
             options.shardProgressExpiration.toMillis()
         )
-        vertx.deployVerticleAwait(
+        shardPersistenceDeploymentId = vertx.deployVerticleAwait(
             RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
                 JsonObject.mapFrom(options)
             )

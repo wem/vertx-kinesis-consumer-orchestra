@@ -10,13 +10,22 @@ object OrchestraCodecs {
      * Deploys event bus message codecs used by orchestra.
      */
     fun deployCodecs(eventBus: EventBus) {
-        eventBus.registerDefaultCodec(
-            MergeReshardingEvent::class.java,
-            JacksonMessageCodec.create("merge-resharding-event-codec")
-        )
-        eventBus.registerDefaultCodec(
-            SplitReshardingEvent::class.java,
-            JacksonMessageCodec.create("split-resharding-event-codec")
-        )
+        deployCodec(eventBus, MergeReshardingEvent::class.java, JacksonMessageCodec.create("merge-resharding-event-codec"))
+        deployCodec(eventBus, SplitReshardingEvent::class.java, JacksonMessageCodec.create("split-resharding-event-codec"))
+    }
+
+    private fun <T :  Any> deployCodec(
+        eventBus: EventBus,
+        dtoClass: Class<T>,
+        codec : JacksonMessageCodec<T>
+    ) {
+        eventBus.runCatching {
+            registerDefaultCodec(dtoClass,codec)
+        }.onFailure {
+            // We catch exception when codecs are registered multiple times.
+            if (it !is IllegalStateException) {
+                throw it
+            }
+        }
     }
 }
