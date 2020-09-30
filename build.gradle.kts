@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.3.72"
-    kotlin("kapt") version "1.3.72"
+    kotlin("jvm") version "1.4.0"
+    kotlin("kapt") version "1.4.0"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
@@ -22,6 +22,7 @@ dependencyManagement {
         mavenBom("io.vertx:vertx-dependencies:${libVersion("vertx")}")
         mavenBom("org.junit:junit-bom:${libVersion("junit")}")
         mavenBom("org.testcontainers:testcontainers-bom:${libVersion("testcontainers")}")
+        mavenBom("software.amazon.awssdk:bom:${libVersion("awssdk")}")
     }
     generatedPomCustomization {
         setEnabled(false)
@@ -30,6 +31,7 @@ dependencyManagement {
 
 dependencies {
     implementation(kotlin("stdlib-jdk8"))
+    implementation(kotlin("reflect"))
     api(vertx("vertx-core"))
     api(vertx("vertx-redis-client"))
     api(vertx("vertx-lang-kotlin"))
@@ -40,9 +42,9 @@ dependencies {
 
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
-    api(aws("kinesis"))
-    api(aws("netty-nio-client"))
-    api(aws("sts"))
+    api(awsSdk("kinesis"))
+    api(awsSdk("netty-nio-client"))
+    api(awsSdk("sts"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
 
     api("io.reactiverse:vertx-aws-sdk:${libVersion("vertx-aws-sdk")}")
@@ -62,11 +64,10 @@ dependencies {
     testImplementation("org.testcontainers:localstack")
     testImplementation("org.testcontainers:toxiproxy")
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-debug:${libVersion("coroutines")}")
 }
 
 fun vertx(module: String) = "io.vertx:$module:${libVersion("vertx")}"
-fun aws(module: String) = "software.amazon.awssdk:$module:${libVersion("awssdk")}"
+fun awsSdk(module: String) = "software.amazon.awssdk:$module"
 fun libVersion(suffix: String) = property("version.$suffix")
 
 configure<JavaPluginConvention> {
