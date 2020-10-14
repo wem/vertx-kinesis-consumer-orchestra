@@ -19,6 +19,9 @@ internal object SharedData {
                 "No shared instance of ${T::class.java.name} under reference: \"$reference\" found"
             )
 
+    fun containsSharedInstanceForReference(vertx: Vertx, reference: String) =
+        getLocalSharedMap<Shareable>(vertx).containsKey(reference)
+
     private fun <T : Shareable> getLocalSharedMap(vertx: Vertx) =
         vertx.sharedData().getLocalMap<String, T>(LOCAL_SHARED_MAP_NAME)
 }

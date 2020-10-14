@@ -18,5 +18,6 @@ internal data class KinesisConsumerVerticleOptions(
     val errorHandling: ErrorHandling,
     val kinesisPollIntervalMillis: Long,
     val recordsPerPollLimit: Int,
-    val redisOptions: RedisOptions
+    val redisOptions: RedisOptions,
+    val sequenceNbrImportAddress: String? = null
 )

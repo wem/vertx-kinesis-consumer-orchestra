@@ -1,11 +1,15 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.KCLV1ImportOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestra
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.OrchestraCodecs
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesisOrchestraModules
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1Importer
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1ImporterCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
@@ -13,6 +17,7 @@ import io.vertx.core.*
 import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.core.undeployAwait
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -39,7 +44,7 @@ class VertxKinesisOrchestraImpl(
         }
     }
 
-    override suspend fun startAwait() : VertxKinesisOrchestra {
+    override suspend fun startAwait(): VertxKinesisOrchestra {
         DatabindCodec.mapper().registerKinesisOrchestraModules()
         DatabindCodec.prettyMapper().registerKinesisOrchestraModules()
 
@@ -51,6 +56,11 @@ class VertxKinesisOrchestraImpl(
 
         if (options.useCustomShardStatePersistenceService.not()) {
             deployDefaultShardStatePersistence()
+        }
+
+        val kclV1ImportOptions = options.kclV1ImportOptions
+        if(kclV1ImportOptions.isNotNull()) {
+            deployKCL1Importer(kclV1ImportOptions)
         }
 
         val check = JsonObject.mapFrom(options.asOrchestraVerticleOptions())
@@ -114,6 +124,26 @@ class VertxKinesisOrchestraImpl(
                 JsonObject.mapFrom(options)
             )
         )
+    }
+
+    private suspend fun deployKCL1Importer(kclImportOptions: KCLV1ImportOptions) {
+        val credentialsProviderSupplier = kclImportOptions.credentialsProviderSupplier
+        if (credentialsProviderSupplier.isNotNull()) {
+            val kclV1CredentialsProvider = KCLV1ImporterCredentialsProvider(credentialsProviderSupplier.get())
+            SharedData.shareInstance(
+                vertx,
+                kclV1CredentialsProvider,
+                KCLV1ImporterCredentialsProvider.SHARED_DATA_REF
+            )
+        }
+
+        vertx.deployVerticleAwait(
+            KCLV1Importer::class.java.name,
+            deploymentOptionsOf(config = JsonObject.mapFrom(kclImportOptions))
+        )
+
+        logger.info { "KCL V1 importer deployed. Will get queried if the shard iterator strategy is " +
+                "ShardIteratorStrategy.EXISTING_OR_LATEST and VKCO has no knowledge about an shard iterator." }
     }
 
     private fun shareCredentials(credentialsProvider: AwsCredentialsProvider) {

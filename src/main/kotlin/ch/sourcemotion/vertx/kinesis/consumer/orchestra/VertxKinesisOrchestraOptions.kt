@@ -135,7 +135,16 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Be aware that this options are a combination with the internal configuration, so if you use Jackson
      * please add @[JsonIgnoreProperties] with [JsonIgnoreProperties.ignoreUnknown] true configured.
      */
-    var consumerVerticleConfig: JsonObject = JsonObject()
+    var consumerVerticleConfig: JsonObject = JsonObject(),
+
+    /**
+     * Options to import last proceeded Kinesis sequence number per shard, according to KCL v1.
+     * https://docs.aws.amazon.com/streams/latest/dev/shared-throughput-kcl-consumers.html#shared-throughput-kcl-consumers-concepts
+     *
+     * The importer will read the most recent sequence number of a lease for a shard, so the VKCS will continue to fetch
+     * from this sequence number.
+     */
+    var kclV1ImportOptions: KCLV1ImportOptions? = null
 ) {
     companion object {
         const val DEFAULT_KINESIS_POLL_INTERVAL_MILLIS = 1000L
@@ -206,5 +215,21 @@ data class LoadConfiguration(val strategy: LoadStrategy, val exactCount: Int? = 
     companion object {
         fun createDoAllShardsConfig() = LoadConfiguration(LoadStrategy.DO_ALL_SHARDS)
         fun createExactConfig(exactCount: Int) = LoadConfiguration(LoadStrategy.EXACT, exactCount)
+    }
+}
+
+data class KCLV1ImportOptions @JvmOverloads constructor(
+    val importAddress: String = DEFAULT_IMPORT_ADDRESS,
+    val leaseTableName: String,
+    val dynamoDbEndpoint: String? = null,
+
+    /**
+     * Make it possible to use DynamoDB specific aws credentials provider. If not defined,
+     * [VertxKinesisOrchestraOptions.credentialsProviderSupplier] will be used instead.
+     */
+    val credentialsProviderSupplier: Supplier<AwsCredentialsProvider>? = null
+) {
+    companion object {
+        const val DEFAULT_IMPORT_ADDRESS = "/kinesis-consumer-orchester/kcl-import"
     }
 }
