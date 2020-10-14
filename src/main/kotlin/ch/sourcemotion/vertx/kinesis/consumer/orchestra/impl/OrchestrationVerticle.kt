@@ -155,7 +155,8 @@ class OrchestrationVerticle : CoroutineVerticle() {
             options.errorHandling,
             options.kinesisPollInterval,
             options.recordsPerPollLimit,
-            options.redisOptions
+            options.redisOptions,
+            options.sequenceNumberImportAddress
         )
 }
 
@@ -177,7 +178,8 @@ internal class OrchestrationVerticleOptions(
     val consumerDeploymentLockRetryInterval: Long,
     var reshardingNotificationAddress: String,
     var consumerVerticleClass: String,
-    var consumerVerticleConfig: Map<String, Any>
+    var consumerVerticleConfig: Map<String, Any>,
+    val sequenceNumberImportAddress: String? = null
 )
 
 internal fun VertxKinesisOrchestraOptions.asOrchestraVerticleOptions() = OrchestrationVerticleOptions(
@@ -193,5 +195,6 @@ internal fun VertxKinesisOrchestraOptions.asOrchestraVerticleOptions() = Orchest
     consumerDeploymentLockRetryInterval.toMillis(),
     reshardingNotificationAddress,
     consumerVerticleClass,
-    consumerVerticleConfig.map
+    consumerVerticleConfig.map,
+    kclV1ImportOptions?.importAddress
 )
