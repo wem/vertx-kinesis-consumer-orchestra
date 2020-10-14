@@ -1,7 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.vertx.junit5.VertxTestContext
 import org.junit.jupiter.api.Test
 
@@ -13,7 +12,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
     @Test
     internal fun redis_based_split_resharding(testContext: VertxTestContext) = asyncTest(testContext, 1) { checkpoint ->
         // We create a parent, and 2 child shards
-        createAndGetStreamDescriptionWhenActive(3)
+        kinesisClient.createAndGetStreamDescriptionWhenActive(3)
 
         createDispatcher {
             checkpoint.flag()
@@ -25,7 +24,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
     @Test
     internal fun redis_based_merge_resharding(testContext: VertxTestContext) = asyncTest(testContext, 1) { checkpoint ->
         // We create 2 parents, and 1 child shard
-        createAndGetStreamDescriptionWhenActive(3)
+        kinesisClient.createAndGetStreamDescriptionWhenActive(3)
 
         createDispatcher(true) {
             checkpoint.flag()
@@ -38,7 +37,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
     internal fun eventbus_based_split_resharding(testContext: VertxTestContext) =
         asyncTest(testContext, 1) { checkpoint ->
             // We create a parent, and 2 child shards
-            createAndGetStreamDescriptionWhenActive(3)
+            kinesisClient.createAndGetStreamDescriptionWhenActive(3)
 
             createDispatcher {
                 checkpoint.flag()
@@ -51,7 +50,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
     internal fun eventbus_based_merge_resharding(testContext: VertxTestContext) =
         asyncTest(testContext, 1) { checkpoint ->
             // We create 2 parents, and 1 child shard
-            createAndGetStreamDescriptionWhenActive(3)
+            kinesisClient.createAndGetStreamDescriptionWhenActive(3)
 
             createDispatcher(true) {
                 checkpoint.flag()
