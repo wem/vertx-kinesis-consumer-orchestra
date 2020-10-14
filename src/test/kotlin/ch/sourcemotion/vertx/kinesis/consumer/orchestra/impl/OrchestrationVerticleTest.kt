@@ -5,9 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestrationVerticleTest.Companion.RECORDS_RECEIVED_ACK_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.bunchesOf
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.ints.shouldBeBetween
 import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
@@ -37,7 +35,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
 
         asyncTest(testContext, recordBunching.recordCount) { checkpoint ->
 
-            createAndGetStreamDescriptionWhenActive(1)
+            kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             eventBus.consumer<JsonArray>(RECORDS_RECEIVED_ACK_ADDR) {
                 testContext.verify {
@@ -51,7 +49,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
 
             deployOrchestrationVerticle(vertx, LoadConfiguration.createExactConfig(1))
 
-            putRecords(recordBunching, { recordData })
+            kinesisClient.putRecords(recordBunching, recordDataSupplier =  { recordData })
         }
     }
 
@@ -61,7 +59,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
         val dataString = "record-data"
 
         asyncTest(testContext, recordBunching.recordCount + 1) { checkpoint ->
-            createAndGetStreamDescriptionWhenActive(recordBunching.recordBunches)
+            kinesisClient.createAndGetStreamDescriptionWhenActive(recordBunching.recordBunches)
 
             val recordNumbers = ArrayList<Int>()
             eventBus.consumer<JsonArray>(RECORDS_RECEIVED_ACK_ADDR) {
@@ -89,7 +87,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
             deployOrchestrationVerticle(vertx, LoadConfiguration.createDoAllShardsConfig())
 
             // We put the records with explicit hash key instead of partition key to ensure fair distribution between shards
-            putRecordsExplicitHashKey(recordBunching, { SdkBytes.fromUtf8String("${dataString}_$it") })
+            kinesisClient.putRecordsExplicitHashKey(recordBunching, { SdkBytes.fromUtf8String("${dataString}_$it") })
         }
     }
 
@@ -109,13 +107,13 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
         // 100 on single shard before split, 200 after split, 100 after merge + 3 for finished steps
         asyncTest(testContext, 400 + 3) { checkpoint ->
 
-            createAndGetStreamDescriptionWhenActive(1)
+            kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             val steps = listOf(
                 Step(listOf(initialShardId)) {
                     defaultTestScope.launch {
                         kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).let {
-                            splitShardFair(it.shards().first())
+                            kinesisClient.splitShardFair(it.shards().first())
                             logger.info { "Shard split done" }
                         }
                         checkpoint.flag()
@@ -128,7 +126,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
                                 it.shards().first { shard -> shard.shardIdTyped() == splitChildShardIds.first() }
                             val mergeAdjacentParentShard =
                                 it.shards().first { shard -> shard.shardIdTyped() == splitChildShardIds.last() }
-                            mergeShards(mergeParent, mergeAdjacentParentShard)
+                            kinesisClient.mergeShards(mergeParent, mergeAdjacentParentShard)
                             logger.info { "Shard merge Merge done" }
                         }
                         checkpoint.flag()
@@ -158,7 +156,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
                 logger.info { "Resharding notification received" }
                 checkpoint.flag()
                 defaultTestScope.launch {
-                    putRecordsExplicitHashKey(
+                    kinesisClient.putRecordsExplicitHashKey(
                         step.shardIds.size bunchesOf step.recordCountPerBundle,
                         { SdkBytes.fromUtf8String("${dataString}_$it") },
                         predefinedShards = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
@@ -167,7 +165,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
                 }
             }
 
-            putRecordsExplicitHashKey(
+            kinesisClient.putRecordsExplicitHashKey(
                 step.shardIds.size bunchesOf step.recordCountPerBundle,
                 { SdkBytes.fromUtf8String("${dataString}_$it") },
                 predefinedShards = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()

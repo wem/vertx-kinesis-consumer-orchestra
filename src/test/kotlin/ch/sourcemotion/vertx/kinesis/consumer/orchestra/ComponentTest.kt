@@ -1,8 +1,8 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ComponentTest.FanoutMessage
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.bunchesOf
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.kotest.matchers.shouldBe
 import io.vertx.core.json.JsonObject
@@ -11,7 +11,6 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.Record
-import java.util.function.Supplier
 
 internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
 
@@ -25,17 +24,17 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
 
     @BeforeEach
     internal fun setUpComponent(testContext: VertxTestContext) = asyncTest(testContext) {
-        createAndGetStreamDescriptionWhenActive(1)
+        kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
         orchestra = VertxKinesisOrchestra.create(
             vertx, VertxKinesisOrchestraOptions(
                 TEST_APPLICATION_NAME,
                 TEST_STREAM_NAME,
-                credentialsProviderSupplier = Supplier { AbstractKinesisAndRedisTest.CREDENTIALS_PROVIDER },
+                credentialsProviderSupplier = { Localstack.credentialsProvider },
                 consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,
                 redisOptions = redisOptions,
-                consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
-                kinesisEndpoint = getKinesisEndpoint()
+                consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
+                kinesisEndpoint = localStackContainer.getKinesisEndpointOverride()
             )
         ).startAwait()
     }
@@ -55,8 +54,10 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
                 testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
             }
 
-            putRecords(1 bunchesOf RECORD_COUNT)
+            kinesisClient.putRecords(1 bunchesOf RECORD_COUNT)
         }
+
+    data class FanoutMessage(val recordCount: Int, val parameter: String)
 }
 
 
@@ -74,5 +75,3 @@ class ComponentTestConsumerVerticle : AbstractKinesisConsumerCoroutineVerticle()
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ComponentTestConsumerOptions(val someParameter: String)
-
-data class FanoutMessage(val recordCount: Int, val parameter: String)
