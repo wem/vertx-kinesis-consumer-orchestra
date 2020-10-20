@@ -1,5 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.json.JsonObject
 import io.vertx.redis.client.RedisOptions
@@ -69,6 +71,11 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Vert.x Redis options. Used to configure Redis clients they access shard.
      */
     var redisOptions: RedisOptions,
+
+    /**
+     * AWS SDK metrics options
+     */
+    var awsClientMetricOptions: AwsClientMetricOptions = DisabledAwsClientMetricOptions(),
 
     /**
      * If the connection to Redis get lost, the orchestra will try to reconnect to Redis in this interval.
