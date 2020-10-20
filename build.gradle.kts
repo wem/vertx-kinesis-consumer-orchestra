@@ -42,6 +42,7 @@ dependencies {
 
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
+    api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}")
     api(awsSdk("kinesis"))
     api(awsSdk("netty-nio-client"))
     api(awsSdk("sts"))
