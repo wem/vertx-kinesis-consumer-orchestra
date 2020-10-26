@@ -72,9 +72,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
 
         val reshardingEventParentShardFinished = MergeReshardingEvent(
             parentShardId,
-            adjacentParentShardId,
-            childShardId,
-            parentShardId
+            childShardId
         )
         // We have to simulate that's the parent shard is flagged finished, as like by consumer verticle
         shardStatePersistenceService.saveFinishedShard(parentShardId, 10000)
@@ -82,10 +80,8 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
 
         // We need to send it twice, as this would singal that both parents are finished
         val reshardingEventAdjacentParentShardFinished = MergeReshardingEvent(
-            parentShardId,
             adjacentParentShardId,
-            childShardId,
-            adjacentParentShardId
+            childShardId
         )
 
         // We have to simulate that's the adjacent parent shard is flagged finished, as like by consumer verticle

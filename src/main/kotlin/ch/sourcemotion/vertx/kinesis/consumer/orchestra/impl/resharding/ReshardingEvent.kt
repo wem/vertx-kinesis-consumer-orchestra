@@ -27,22 +27,12 @@ abstract class ReshardingEvent(val reshardingType: ReshardingType) : Shareable {
     fun getNotificationAddr() = NOTIFICATION_ADDR
 }
 
-class MergeReshardingEvent(
-    val parentShardId: ShardId,
-    val adjacentParentShardId: ShardId,
-    val childShardId: ShardId,
-    val finishedShardId: ShardId
-) : ReshardingEvent(ReshardingType.MERGE) {
+data class MergeReshardingEvent(
+    val finishedParentShardId: ShardId,
+    val childShardId: ShardId
+) : ReshardingEvent(ReshardingType.MERGE)
 
-    override fun toString(): String {
-        return "MergeReshardingInformation(parentShardId='$parentShardId', adjacentParentShardId='$adjacentParentShardId', childShardId='$childShardId')"
-    }
-}
-
-class SplitReshardingEvent(val parentShardId: ShardId, val childShardIds: ShardIdList) :
-    ReshardingEvent(ReshardingType.SPLIT) {
-
-    override fun toString(): String {
-        return "SplitReshardingInformation(parentShard='$parentShardId' resultingShards=$childShardIds)"
-    }
-}
+class SplitReshardingEvent(
+    val finishedParentShardId: ShardId,
+    val childShardIds: ShardIdList
+) : ReshardingEvent(ReshardingType.SPLIT)

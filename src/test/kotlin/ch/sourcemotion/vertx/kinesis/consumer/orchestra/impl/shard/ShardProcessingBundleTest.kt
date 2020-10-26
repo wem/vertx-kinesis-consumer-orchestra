@@ -6,7 +6,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrch
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.createShardMock
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.createShard
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -21,7 +21,7 @@ internal class ShardProcessingBundleTest {
     internal fun do_all_shards_no_shard_finished() {
         val availableIds = ShardIdGenerator.generateShardIdList(10)
         val processingBundle = ShardProcessingBundle.create(
-            availableIds.map { createShardMock(it) },
+            availableIds.map { createShard(it) },
             listOf(),
             LoadConfiguration.createDoAllShardsConfig()
         )
@@ -34,7 +34,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_merged_with_not_finished_parents() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -56,7 +56,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_merged_with_not_finished_parent() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -74,7 +74,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_merged_with_not_finished_adjacent() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -95,7 +95,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_merged_with_finished_parents() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -113,7 +113,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_finished_and_merged_with_finished_parents() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
+        val finished = createShard(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -131,7 +131,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_merged_with_unavailable_parents() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (_, _, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -149,7 +149,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_finished_and_merged_with_unavailable_parents() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
+        val finished = createShard(ShardIdGenerator.generateShardId())
         val (_, _, mergeChild) = createMergeInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -167,7 +167,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_split_with_finished_parent() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -187,7 +187,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_split_with_not_finished_parent() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -207,7 +207,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_finished_and_split_with_finished_parent() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
+        val finished = createShard(ShardIdGenerator.generateShardId())
         val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -227,7 +227,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_not_finished_and_split_with_unavailable_parent() {
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId())
         val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -247,7 +247,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun do_all_shards_finished_and_split_with_unavailable_parent() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
+        val finished = createShard(ShardIdGenerator.generateShardId())
         val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -267,7 +267,7 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun exact_finished_and_split_with_unavailable_parent() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
+        val finished = createShard(ShardIdGenerator.generateShardId())
         val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
 
         val processingBundle = ShardProcessingBundle.create(
@@ -285,8 +285,8 @@ internal class ShardProcessingBundleTest {
      */
     @Test
     internal fun exact_finished_and_not_finished() {
-        val finished = createShardMock(ShardIdGenerator.generateShardId())
-        val notFinished = createShardMock(ShardIdGenerator.generateShardId(1))
+        val finished = createShard(ShardIdGenerator.generateShardId())
+        val notFinished = createShard(ShardIdGenerator.generateShardId(1))
 
         val processingBundle = ShardProcessingBundle.create(
             listOf(finished, notFinished),
@@ -309,19 +309,19 @@ internal class ShardProcessingBundleTest {
     }
 
     private fun createSplitInheritance() : Triple<Shard, Shard, Shard> {
-        val splitParent = createShardMock(ShardIdGenerator.generateShardId(1))
-        val splitChildLeft = createShardMock(ShardIdGenerator.generateShardId(2), splitParent.shardId())
-        val splitChildRight = createShardMock(ShardIdGenerator.generateShardId(3), splitParent.shardId())
+        val splitParent = createShard(ShardIdGenerator.generateShardId(1))
+        val splitChildLeft = createShard(ShardIdGenerator.generateShardId(2), splitParent.shardIdTyped())
+        val splitChildRight = createShard(ShardIdGenerator.generateShardId(3), splitParent.shardIdTyped())
         return Triple(splitParent, splitChildLeft, splitChildRight)
     }
 
     private fun createMergeInheritance() : Triple<Shard, Shard, Shard> {
-        val mergeParent = createShardMock(ShardIdGenerator.generateShardId(1))
-        val mergeAdjacentParent = createShardMock(ShardIdGenerator.generateShardId(2))
-        val mergeChild = createShardMock(
+        val mergeParent = createShard(ShardIdGenerator.generateShardId(1))
+        val mergeAdjacentParent = createShard(ShardIdGenerator.generateShardId(2))
+        val mergeChild = createShard(
             ShardIdGenerator.generateShardId(3),
-            mergeParent.shardId(),
-            mergeAdjacentParent.shardId()
+            mergeParent.shardIdTyped(),
+            mergeAdjacentParent.shardIdTyped()
         )
         return Triple(mergeParent, mergeAdjacentParent, mergeChild)
     }
