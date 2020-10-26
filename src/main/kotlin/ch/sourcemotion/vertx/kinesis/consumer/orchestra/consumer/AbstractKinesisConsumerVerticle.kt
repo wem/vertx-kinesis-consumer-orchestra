@@ -132,7 +132,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private suspend fun startFetching(fetchStartPosition: FetchPosition) {
-        logger.debug { "Start polling for $consumerInfo" }
+        logger.debug { "Start fetching for $consumerInfo" }
         var currentFetchPosition = fetchStartPosition
 
         // We not wait on first fetch, as the last fetch operation was a longer time ago.
