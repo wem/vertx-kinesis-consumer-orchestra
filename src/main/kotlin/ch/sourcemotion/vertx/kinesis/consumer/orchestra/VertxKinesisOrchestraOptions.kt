@@ -33,12 +33,12 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Interval Kinesis should be queried for new records. If the processing time of the previous received bunch of records did
      * take longer than this interval, then Kinesis will get queried immediately when this work get done.
      */
-    var kinesisPollInterval: Duration = Duration.ofMillis(DEFAULT_KINESIS_POLL_INTERVAL_MILLIS),
+    var kinesisFetchInterval: Duration = Duration.ofMillis(DEFAULT_KINESIS_FETCH_INTERVAL_MILLIS),
 
     /**
      * The max. amount of records per query against Kinesis.
      */
-    var recordsPerPollLimit: Int = DEFAULT_RECORDS_PER_POLL_LIMIT,
+    var recordsPerBatchLimit: Int = DEFAULT_RECORDS_PER_BATCH_LIMIT,
 
     /**
      * Expiration of the progress flag during shard processing. If the flag is not updated within this expiration period
@@ -136,23 +136,32 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     var consumerVerticleClass: String,
 
     /**
-     * Additional configuration, passed as options / configuration to the deployment of [consumerVerticleClass].
+     * Additional configuration, passed as options / configuration to the deployment of [recordsPerBatchLimit].
      *
      * IMPORTANT:
      * Be aware that this options are a combination with the internal configuration, so if you use Jackson
      * please add @[JsonIgnoreProperties] with [JsonIgnoreProperties.ignoreUnknown] true configured.
      */
-    var consumerVerticleConfig: JsonObject = JsonObject()
+    var consumerVerticleConfig: JsonObject = JsonObject(),
+
+    /**
+     * Options to import last proceeded Kinesis sequence number per shard, according to KCL v1.
+     * https://docs.aws.amazon.com/streams/latest/dev/shared-throughput-kcl-consumers.html#shared-throughput-kcl-consumers-concepts
+     *
+     * The importer will read the most recent sequence number of a lease for a shard, so the VKCS will continue to fetch
+     * from this sequence number.
+     */
+    var kclV1ImportOptions: KCLV1ImportOptions? = null
 ) {
     companion object {
-        const val DEFAULT_KINESIS_POLL_INTERVAL_MILLIS = 1000L
+        const val DEFAULT_KINESIS_FETCH_INTERVAL_MILLIS = 1000L
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS = 2000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
 
         // https://docs.aws.amazon.com/streams/latest/dev/service-sizes-and-limits.html
-        const val DEFAULT_RECORDS_PER_POLL_LIMIT = 10000
+        const val DEFAULT_RECORDS_PER_BATCH_LIMIT = 10000
         val DEFAULT_REGION: Region = Region.EU_WEST_1
     }
 }
@@ -213,5 +222,21 @@ data class LoadConfiguration(val strategy: LoadStrategy, val exactCount: Int? = 
     companion object {
         fun createDoAllShardsConfig() = LoadConfiguration(LoadStrategy.DO_ALL_SHARDS)
         fun createExactConfig(exactCount: Int) = LoadConfiguration(LoadStrategy.EXACT, exactCount)
+    }
+}
+
+data class KCLV1ImportOptions @JvmOverloads constructor(
+    val importAddress: String = DEFAULT_IMPORT_ADDRESS,
+    val leaseTableName: String,
+    val dynamoDbEndpoint: String? = null,
+
+    /**
+     * Make it possible to use DynamoDB specific aws credentials provider. If not defined,
+     * [VertxKinesisOrchestraOptions.credentialsProviderSupplier] will be used instead.
+     */
+    val credentialsProviderSupplier: Supplier<AwsCredentialsProvider>? = null
+) {
+    companion object {
+        const val DEFAULT_IMPORT_ADDRESS = "/kinesis-consumer-orchestra/kcl-import"
     }
 }

@@ -11,9 +11,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlan
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReOrchestrationCmdDispatcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractKinesisAndRedisTest
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.bunchesOf
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainAll
@@ -58,7 +56,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordBunching = 10 bunchesOf 10
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             vertx.eventBus().consumer<Record>(SINGLE_RECORD_SEND_ADDR) { msg ->
                 msg.ack()
@@ -68,7 +66,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle()
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -78,7 +76,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             10 bunchesOf 10 addToCount 11 // + 11 because each 10th record processing will fail and retried one time.
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var receivedRecords = 0
             var lastFailedRecordSequenceNumber: String? = null
@@ -103,7 +101,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle()
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -113,7 +111,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             10 bunchesOf 10 addToCount 11 // + 11 because each 10th record processing will fail and retried one time.
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var receivedRecords = 0
             var lastFailedRecordSequenceNumber: String? = null
@@ -138,7 +136,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(errorHandling = ErrorHandling.IGNORE_AND_CONTINUE)
             )
             startConsumerVerticles(streamDescription)
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -147,7 +145,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordBunching = 10 bunchesOf 10
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             val recordSequenceNumbers = mutableListOf<String>()
 
@@ -166,13 +164,13 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.IGNORE_AND_CONTINUE,
-                    recordsPerPoll = 1,
-                    pollIntervalMillis = 10
+                    recordsPerBatch = 1,
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -184,7 +182,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordBunching = 10 bunchesOf 10
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var lastReceivedRecordSequenceNumber: String? = null
 
@@ -204,13 +202,13 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    recordsPerPoll = 1,
-                    pollIntervalMillis = 10
+                    recordsPerBatch = 1,
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -226,7 +224,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordBunching = 10 bunchesOf 10
 
         asyncTest(testContext, recordBunching.recordCount * 2 /*In fact this is an endless loop*/) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var recordSequenceNumber: String? = null
 
@@ -248,12 +246,12 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    pollIntervalMillis = 10
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -261,7 +259,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
     internal fun shard_splitting(testContext: VertxTestContext) = asyncTestDelayedEnd(testContext, 1) { checkpoint ->
         val parentShardId = ShardIdGenerator.generateShardId()
 
-        val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
         deploySingleRecordForwardConsumerTestVerticle(createKinesisConsumerVerticleConfig())
         startConsumerVerticles(streamDescription)
@@ -292,7 +290,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             }
         }.start()
 
-        splitShardFair(streamDescription.shards().first())
+        kinesisClient.splitShardFair(streamDescription.shards().first())
     }
 
     @Test
@@ -301,7 +299,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val parentShardId = shardIds.first()
         val adjacentParentShardId = shardIds[1]
         // We need 2 shard to merge
-        val streamDescription = createAndGetStreamDescriptionWhenActive(2)
+        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
 
         deploySingleRecordForwardConsumerTestVerticle(
             createKinesisConsumerVerticleConfig(),
@@ -342,7 +340,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             }
         }.start()
 
-        mergeShards(
+        kinesisClient.mergeShards(
             streamDescription.shards().first { it.shardIdTyped() == parentShardId },
             streamDescription.shards().first { it.shardIdTyped() == adjacentParentShardId }
         )
@@ -357,7 +355,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordCount = recordBunching.recordCount
 
         asyncTestDelayedEnd(testContext, recordCount * 2/* We put the double amount of records*/) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             // We need a continued indexing of records, so we are able to identify each round the consumer will run.
             var putRecordIdx = 0
@@ -383,7 +381,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
 
                         consumerRoundStarter()
 
-                        putRecords(recordBunching, recordDataSupplier = { generateRecordData() })
+                        kinesisClient.putRecords(recordBunching, recordDataSupplier = { generateRecordData() })
                     }
                 }
                 // Verification of the second run / deployment of the consumer verticle.
@@ -401,7 +399,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
 
             consumerRoundStarter()
 
-            putRecords(recordBunching, recordDataSupplier = { generateRecordData() })
+            kinesisClient.putRecords(recordBunching, recordDataSupplier = { generateRecordData() })
         }
     }
 
@@ -412,7 +410,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         val recordBunching = 1 bunchesOf 2
 
         asyncTestDelayedEnd(testContext, recordBunching.recordCount) { checkpoint ->
-            val streamDescription = createAndGetStreamDescriptionWhenActive(1)
+            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var receivedSequenceNumber: String? = null
             vertx.eventBus().consumer<Record>(SINGLE_RECORD_SEND_ADDR) { msg ->
@@ -437,14 +435,14 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
 
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig().copy(
-                    recordsPerPollLimit = 1,
-                    kinesisPollIntervalMillis = 10
+                    recordsPerBatchLimit = 1,
+                    kinesisFetchIntervalMillis = 10
                 )
             )
 
             startConsumerVerticles(streamDescription)
 
-            putRecords(recordBunching)
+            kinesisClient.putRecords(recordBunching)
         }
     }
 
@@ -488,15 +486,15 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         streamName: String = TEST_STREAM_NAME,
         shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
         errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-        pollIntervalMillis: Long = 1000L,
-        recordsPerPoll: Int = 1000
+        fetchIntervalMillis: Long = 1000L,
+        recordsPerBatch: Int = 1000
     ) = KinesisConsumerVerticleOptions(
         applicationName,
         streamName,
         shardIteratorStrategy,
         errorHandling,
-        pollIntervalMillis,
-        recordsPerPoll,
+        fetchIntervalMillis,
+        recordsPerBatch,
         redisOptions
     )
 }

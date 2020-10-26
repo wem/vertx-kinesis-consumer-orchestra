@@ -153,9 +153,10 @@ class OrchestrationVerticle : CoroutineVerticle() {
             options.streamName,
             shardIteratorStrategyOverride ?: options.shardIteratorStrategy,
             options.errorHandling,
-            options.kinesisPollInterval,
-            options.recordsPerPollLimit,
-            options.redisOptions
+            options.kinesisFetchInterval,
+            options.recordsPerBatchLimit,
+            options.redisOptions,
+            options.sequenceNumberImportAddress
         )
 }
 
@@ -164,8 +165,8 @@ internal class OrchestrationVerticleOptions(
     var applicationName: String,
     var streamName: String,
     // We not force the user to add Java date Jackson module
-    var kinesisPollInterval: Long,
-    var recordsPerPollLimit: Int,
+    var kinesisFetchInterval: Long,
+    var recordsPerBatchLimit: Int,
     var redisOptions: RedisOptions,
 
     var shardIteratorStrategy: ShardIteratorStrategy,
@@ -177,14 +178,15 @@ internal class OrchestrationVerticleOptions(
     val consumerDeploymentLockRetryInterval: Long,
     var reshardingNotificationAddress: String,
     var consumerVerticleClass: String,
-    var consumerVerticleConfig: Map<String, Any>
+    var consumerVerticleConfig: Map<String, Any>,
+    val sequenceNumberImportAddress: String? = null
 )
 
 internal fun VertxKinesisOrchestraOptions.asOrchestraVerticleOptions() = OrchestrationVerticleOptions(
     applicationName,
     streamName,
-    kinesisPollInterval.toMillis(),
-    recordsPerPollLimit,
+    kinesisFetchInterval.toMillis(),
+    recordsPerBatchLimit,
     redisOptions,
     shardIteratorStrategy,
     loadConfiguration,
@@ -193,5 +195,6 @@ internal fun VertxKinesisOrchestraOptions.asOrchestraVerticleOptions() = Orchest
     consumerDeploymentLockRetryInterval.toMillis(),
     reshardingNotificationAddress,
     consumerVerticleClass,
-    consumerVerticleConfig.map
+    consumerVerticleConfig.map,
+    kclV1ImportOptions?.importAddress
 )

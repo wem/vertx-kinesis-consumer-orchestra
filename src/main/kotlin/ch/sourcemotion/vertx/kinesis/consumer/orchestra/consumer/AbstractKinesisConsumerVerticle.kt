@@ -1,7 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
@@ -20,14 +19,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
-import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.time.Duration
+import kotlin.LazyThreadSafetyMode.NONE
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Verticle which must be implemented to receive records polled from Kinesis.
+ * Verticle which must be implemented to receive records fetched from Kinesis.
  *
  * Is configurable in orchestra options [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions#consumerVerticleClass]
  */
@@ -44,22 +43,22 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private val recordFetcher: RecordFetcher by lazy {
         RecordFetcher(
             kinesisClient,
-            options.recordsPerPollLimit,
+            options.recordsPerBatchLimit,
             options.streamName,
             shardId,
             this,
-            options.kinesisPollIntervalMillis
+            options.kinesisFetchIntervalMillis
         ) { consumerInfo }
     }
 
-    private val redis by lazy { Redis.createClient(vertx, options.redisOptions) }
+    private val redis by lazy(NONE) { Redis.createClient(vertx, options.redisOptions) }
 
-    private val kinesisClient: KinesisAsyncClient by lazy {
+    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
             .createKinesisAsyncClient(context)
     }
 
-    private val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy {
+    private val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy(NONE) {
         ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
     }
 
@@ -71,7 +70,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      */
     @Volatile
     private var running = false
-    private var pollingJob: Job? = null
+    private var fetchJob: Job? = null
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(CONSUMER_START_CMD_ADDR, this::onStartConsumerCmd)
@@ -82,7 +81,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         running = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         suspendCancellableCoroutine<Unit> { cont ->
-            pollingJob?.invokeOnCompletion {
+            fetchJob?.invokeOnCompletion {
                 if (it.isNotNull()) {
                     logger.warn(it) { "\"$consumerInfo\" stopped exceptionally" }
                 } else {
@@ -102,7 +101,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     /**
-     * Consumer function which will be called when this verticle should start polling records from Kinesis.
+     * Consumer function which will be called when this verticle should start fetching records from Kinesis.
      */
     private fun onStartConsumerCmd(msg: Message<String>) {
         shardId = msg.body().asShardIdTyped()
@@ -112,11 +111,18 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         launch {
             shardStatePersistenceService.startShardProgressAndKeepAlive(shardId)
 
-            val startPosition = getQueryStartPosition()
+            val startFetchPosition = StartFetchPositionLookup(
+                vertx,
+                consumerInfo,
+                shardId,
+                options,
+                shardStatePersistenceService,
+                kinesisClient
+            ).getStartFetchPosition()
 
             running = true
 
-            startPolling(startPosition)
+            startFetching(startFetchPosition)
         }.invokeOnCompletion { throwable ->
             throwable?.let {
                 logger.error(it) { "Unable to start Kinesis consumer verticle on \"$consumerInfo\"" }
@@ -125,14 +131,14 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private suspend fun startPolling(fetchStartPosition: FetchPosition) {
-        logger.debug { "Start polling for $consumerInfo" }
+    private suspend fun startFetching(fetchStartPosition: FetchPosition) {
+        logger.debug { "Start fetching for $consumerInfo" }
         var currentFetchPosition = fetchStartPosition
 
         // We not wait on first fetch, as the last fetch operation was a longer time ago.
         recordFetcher.fetchNextRecords(currentFetchPosition, false)
 
-        pollingJob = launch {
+        fetchJob = launch {
             while (isActive && running) {
                 runCatching {
                     recordFetcher.getNextRecords()
@@ -162,7 +168,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                         onShardDidEnd()
                     }
                 }.onFailure { throwable ->
-                    logger.warn(throwable) { "Failure during polling records on $consumerInfo ... but polling will be continued" }
+                    logger.warn(throwable) { "Failure during fetching records on $consumerInfo ... but will continue" }
                 }
             }
         }
@@ -262,31 +268,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun removeShardProgressFlag() {
         shardStatePersistenceService.flagShardNoMoreInProgress(shardId)
         logger.debug { "Remove $consumerInfo from in progress list" }
-    }
-
-    private suspend fun getQueryStartPosition(): FetchPosition {
-        return when (options.shardIteratorStrategy) {
-            ShardIteratorStrategy.FORCE_LATEST -> {
-                logger.debug { "Force ${ShardIteratorType.LATEST.name} shard iterator on $consumerInfo" }
-                FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
-            }
-            ShardIteratorStrategy.EXISTING_OR_LATEST -> {
-                val existingSequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
-                if (existingSequenceNumber.isNotNull()) {
-                    logger.debug { "Use existing shard sequence number: \"$existingSequenceNumber\" for $consumerInfo" }
-                    FetchPosition(
-                        kinesisClient.getShardIteratorBySequenceNumberAwait(
-                            options.streamName,
-                            shardId,
-                            existingSequenceNumber
-                        ), existingSequenceNumber
-                    )
-                } else {
-                    logger.debug { "Use ${ShardIteratorType.LATEST.name} shard iterator for $consumerInfo because no existing position found" }
-                    FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
-                }
-            }
-        }
     }
 
     private suspend fun deliver(records: List<Record>) {

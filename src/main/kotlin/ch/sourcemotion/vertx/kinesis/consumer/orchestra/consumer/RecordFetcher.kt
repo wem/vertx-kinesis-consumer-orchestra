@@ -12,7 +12,7 @@ import software.amazon.awssdk.services.kinesis.model.GetRecordsResponse
 
 class RecordFetcher(
     private val kinesisClient: KinesisAsyncClient,
-    private val recordsPerPollLimit: Int,
+    private val recordsPerBatchLimit: Int,
     private val streamName: String,
     private val shardId: ShardId,
     private val scope: CoroutineScope,
@@ -49,7 +49,7 @@ class RecordFetcher(
         return runCatching {
             kinesisClient.getRecords {
                 it.shardIterator("${positionToFetch.iterator}")
-                it.limit(recordsPerPollLimit)
+                it.limit(recordsPerBatchLimit)
             }.await()
                 .also { logger.trace { "Got get records response from Kinesis with \"${it.records().size}\" records" } }
         }.getOrElse { throwable ->
