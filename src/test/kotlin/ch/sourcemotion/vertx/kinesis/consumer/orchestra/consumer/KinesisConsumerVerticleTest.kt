@@ -164,8 +164,8 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.IGNORE_AND_CONTINUE,
-                    recordsPerPoll = 1,
-                    pollIntervalMillis = 10
+                    recordsPerBatch = 1,
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
@@ -202,8 +202,8 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    recordsPerPoll = 1,
-                    pollIntervalMillis = 10
+                    recordsPerBatch = 1,
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
@@ -246,7 +246,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig(
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    pollIntervalMillis = 10
+                    fetchIntervalMillis = 10
                 )
             )
             startConsumerVerticles(streamDescription)
@@ -435,8 +435,8 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
 
             deploySingleRecordForwardConsumerTestVerticle(
                 createKinesisConsumerVerticleConfig().copy(
-                    recordsPerPollLimit = 1,
-                    kinesisPollIntervalMillis = 10
+                    recordsPerBatchLimit = 1,
+                    kinesisFetchIntervalMillis = 10
                 )
             )
 
@@ -486,15 +486,15 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         streamName: String = TEST_STREAM_NAME,
         shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
         errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-        pollIntervalMillis: Long = 1000L,
-        recordsPerPoll: Int = 1000
+        fetchIntervalMillis: Long = 1000L,
+        recordsPerBatch: Int = 1000
     ) = KinesisConsumerVerticleOptions(
         applicationName,
         streamName,
         shardIteratorStrategy,
         errorHandling,
-        pollIntervalMillis,
-        recordsPerPoll,
+        fetchIntervalMillis,
+        recordsPerBatch,
         redisOptions
     )
 }

@@ -26,7 +26,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Verticle which must be implemented to receive records polled from Kinesis.
+ * Verticle which must be implemented to receive records fetched from Kinesis.
  *
  * Is configurable in orchestra options [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions#consumerVerticleClass]
  */
@@ -43,11 +43,11 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private val recordFetcher: RecordFetcher by lazy {
         RecordFetcher(
             kinesisClient,
-            options.recordsPerPollLimit,
+            options.recordsPerBatchLimit,
             options.streamName,
             shardId,
             this,
-            options.kinesisPollIntervalMillis
+            options.kinesisFetchIntervalMillis
         ) { consumerInfo }
     }
 
@@ -70,7 +70,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      */
     @Volatile
     private var running = false
-    private var pollingJob: Job? = null
+    private var fetchJob: Job? = null
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(CONSUMER_START_CMD_ADDR, this::onStartConsumerCmd)
@@ -81,7 +81,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         running = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         suspendCancellableCoroutine<Unit> { cont ->
-            pollingJob?.invokeOnCompletion {
+            fetchJob?.invokeOnCompletion {
                 if (it.isNotNull()) {
                     logger.warn(it) { "\"$consumerInfo\" stopped exceptionally" }
                 } else {
@@ -101,7 +101,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     /**
-     * Consumer function which will be called when this verticle should start polling records from Kinesis.
+     * Consumer function which will be called when this verticle should start fetching records from Kinesis.
      */
     private fun onStartConsumerCmd(msg: Message<String>) {
         shardId = msg.body().asShardIdTyped()
@@ -138,7 +138,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         // We not wait on first fetch, as the last fetch operation was a longer time ago.
         recordFetcher.fetchNextRecords(currentFetchPosition, false)
 
-        pollingJob = launch {
+        fetchJob = launch {
             while (isActive && running) {
                 runCatching {
                     recordFetcher.getNextRecords()
@@ -168,7 +168,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                         onShardDidEnd()
                     }
                 }.onFailure { throwable ->
-                    logger.warn(throwable) { "Failure during polling records on $consumerInfo ... but polling will be continued" }
+                    logger.warn(throwable) { "Failure during fetching records on $consumerInfo ... but will continue" }
                 }
             }
         }

@@ -16,8 +16,8 @@ internal data class KinesisConsumerVerticleOptions(
     val streamName: String,
     val shardIteratorStrategy: ShardIteratorStrategy,
     val errorHandling: ErrorHandling,
-    val kinesisPollIntervalMillis: Long,
-    val recordsPerPollLimit: Int,
+    val kinesisFetchIntervalMillis: Long,
+    val recordsPerBatchLimit: Int,
     val redisOptions: RedisOptions,
     val sequenceNbrImportAddress: String? = null
 )
