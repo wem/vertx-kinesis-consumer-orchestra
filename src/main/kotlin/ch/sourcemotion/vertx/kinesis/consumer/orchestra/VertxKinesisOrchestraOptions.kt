@@ -237,6 +237,6 @@ data class KCLV1ImportOptions @JvmOverloads constructor(
     val credentialsProviderSupplier: Supplier<AwsCredentialsProvider>? = null
 ) {
     companion object {
-        const val DEFAULT_IMPORT_ADDRESS = "/kinesis-consumer-orchester/kcl-import"
+        const val DEFAULT_IMPORT_ADDRESS = "/kinesis-consumer-orchestra/kcl-import"
     }
 }
