@@ -9,7 +9,9 @@ import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.RedisOptions
 import io.vertx.redis.client.Request
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import mu.KLogging
 import org.junit.jupiter.api.BeforeEach
 import org.testcontainers.containers.Network
@@ -56,6 +58,13 @@ abstract class AbstractRedisTest : AbstractVertxTest() {
             logger.info { "Redis server all flushed" }
         } else {
             logger.warn { "Flush Redis server may failed: \"${flushResponse?.toString()}\"" }
+        }
+    }
+
+    protected fun CoroutineScope.removeRedisToxiesAfter(delayMillis: Long) {
+        launch {
+            delay(delayMillis)
+            removeRedisToxies()
         }
     }
 

@@ -13,8 +13,8 @@ plugins {
 (System.getProperty("release_version") ?: findProperty("release_version"))?.let { version = it.toString() }
 
 repositories {
-    jcenter()
     mavenLocal()
+    jcenter()
 }
 
 dependencyManagement {
@@ -33,7 +33,6 @@ dependencies {
     implementation(kotlin("stdlib-jdk8"))
     implementation(kotlin("reflect"))
     api(vertx("vertx-core"))
-    api(vertx("vertx-redis-client"))
     api(vertx("vertx-lang-kotlin"))
     api(vertx("vertx-lang-kotlin-coroutines"))
     api(vertx("vertx-service-discovery"))
@@ -45,9 +44,9 @@ dependencies {
     api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}")
     api(awsSdk("kinesis"))
     api(awsSdk("dynamodb"))
-    api(awsSdk("netty-nio-client"))
     api(awsSdk("sts"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
+    implementation("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
 
     api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}") {
         exclude(group = "software.amazon.awssdk", module = "*")
@@ -68,7 +67,9 @@ dependencies {
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:localstack")
     testImplementation("org.testcontainers:toxiproxy")
-    testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}")
+    testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}") {
+        exclude("io.netty", "*")
+    }
 }
 
 fun vertx(module: String) = "io.vertx:$module:${libVersion("vertx")}"

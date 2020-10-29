@@ -6,7 +6,7 @@ fun Boolean?.isTrue(): Boolean {
     contract {
         returns(true) implies (this@isTrue != null)
     }
-    return this != null && this
+    return this == true
 }
 
 fun Any?.isNotNull(): Boolean {
