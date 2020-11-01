@@ -89,6 +89,6 @@ abstract class AbstractRedisTest : AbstractVertxTest() {
     protected suspend fun closeConnectionToRedis() {
         redisProxy.toxics().timeout(UUID.randomUUID().toString(), ToxicDirection.DOWNSTREAM, 1)
         redisProxy.toxics().timeout(UUID.randomUUID().toString(), ToxicDirection.UPSTREAM, 1)
-        delay(1)
+        delay(2)
     }
 }
