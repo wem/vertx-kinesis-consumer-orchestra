@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.0"
-    kotlin("kapt") version "1.4.0"
+    kotlin("jvm") version "1.4.10"
+    kotlin("kapt") version "1.4.10"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
@@ -30,8 +30,8 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation(kotlin("stdlib-jdk8"))
-    implementation(kotlin("reflect"))
+    api(kotlin("stdlib-jdk8"))
+    api(kotlin("reflect"))
     api(vertx("vertx-core"))
     api(vertx("vertx-lang-kotlin"))
     api(vertx("vertx-lang-kotlin-coroutines"))
