@@ -82,15 +82,18 @@ interface ShardStatePersistenceService {
     fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>)
 
     /**
-     * Should increment (and call [handler] with the incrementation result) a counter related to (child) shard id.
-     * This counter signals when a merge resharding event can get published within a whole consumer orchestra.
+     * Should flag the [parentShardId] of [childShardId] as finished and return amount of finished parent shards.
+     * This can be called multiple times for the same parent.
+     *
+     * As merge parents are consumed from different VKCO instances, the timestamp where each of them would be finished
+     * would be differ. To determine if a child shard could consumed as both parent
      */
-    fun incrAndGetMergeReshardingEventCount(childShardId: String, handler: Handler<AsyncResult<Int>>)
+    fun flagMergeParentReshardingReady(parentShardId: String, childShardId: String, handler: Handler<AsyncResult<Boolean>>)
 
     /**
-     * Deletes the incrementation state of [incrAndGetMergeReshardingEventCount].
+     * Deletes the incrementation state of [flagMergeParentReshardingReady].
      */
-    fun deleteMergeReshardingEventCount(childShardId: String, handler: Handler<AsyncResult<Void?>>)
+    fun deleteMergeParentsReshardingReadyFlag(childShardId: String, handler: Handler<AsyncResult<Int>>)
 }
 
 class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersistenceService) :
@@ -117,20 +120,20 @@ class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersiste
         }
 
     suspend fun getConsumerShardSequenceNumber(shardId: ShardId): SequenceNumber? =
-        awaitResult<JsonObject?> { getConsumerShardSequenceNumber(shardId.id, it) }?.mapTo(SequenceNumber::class.java)
+        awaitResult<JsonObject?> { getConsumerShardSequenceNumber("$shardId", it) }?.mapTo(SequenceNumber::class.java)
 
     suspend fun deleteShardSequenceNumber(shardId: ShardId) =
-        awaitResult<Boolean> { deleteShardSequenceNumber(shardId.id, it) }
+        awaitResult<Boolean> { deleteShardSequenceNumber("$shardId", it) }
 
     suspend fun saveFinishedShard(shardId: ShardId, expirationMillis: Long) =
-        awaitResult<Void?> { saveFinishedShard(shardId.id, expirationMillis, it) }
+        awaitResult<Void?> { saveFinishedShard("$shardId", expirationMillis, it) }
 
     suspend fun getFinishedShardIds(): ShardIdList =
         awaitResult<List<String>> { getFinishedShardIds(it) }.map { it.asShardIdTyped() }
 
-    suspend fun getMergeReshardingEventCount(childShardId: ShardId) =
-        awaitResult<Int> { incrAndGetMergeReshardingEventCount(childShardId.id, it) }
+    suspend fun flagMergeParentReadyToReshard(parentShardId: ShardId, childShardId: ShardId) =
+        awaitResult<Boolean> { this.flagMergeParentReshardingReady("$parentShardId", "$childShardId", it) }
 
-    suspend fun deleteMergeReshardingEventCount(childShardId: ShardId) =
-        awaitResult<Void?> { deleteMergeReshardingEventCount(childShardId.id, it) }
+    suspend fun deleteMergeParentsReshardingReadyFlag(childShardId: ShardId) =
+        awaitResult<Int> { deleteMergeParentsReshardingReadyFlag(childShardId.id, it) }
 }

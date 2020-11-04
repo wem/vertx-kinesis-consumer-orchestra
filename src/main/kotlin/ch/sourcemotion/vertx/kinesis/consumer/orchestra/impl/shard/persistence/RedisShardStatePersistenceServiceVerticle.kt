@@ -9,6 +9,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlan
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isTrue
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoolean
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.DefaultLuaScriptDescription
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
@@ -53,6 +55,8 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
 
     private val redis by lazy(NONE) { RedisHeimdall.create(vertx, redisHeimdallOptions) }
 
+    private val luaExecutor by lazy(NONE) { LuaExecutor(redis) }
+
     private val keepAliveTimerIds = Collections.synchronizedMap(mutableMapOf<String, Long>())
 
     private var running: Boolean? = null
@@ -83,35 +87,30 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
         }
     }
 
-    override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) {
-        withRetry(handler) {
+    override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
             val keyWildcard = redisKeyFactory.createShardProgressFlagKeyWildcard()
             sendAwait(Request.cmd(Command.KEYS).arg(keyWildcard))?.map {
                 // Remove the key part before the shardid
                 extractShardId(it.toString(Charsets.UTF_8))
             } ?: emptyList()
         }
-    }
 
-    override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) {
-        withRetry(handler) {
+    override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
             val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
             sendAwait(
                 Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
                     .arg(serviceOptions.shardProgressExpirationMillis.toString())
             )?.okResponseAsBoolean().isTrue()
         }
-    }
 
-    override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) {
+    override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
             cancelProgressKeepAlive(shardId)
             val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
             sendAwait(Request.cmd(Command.DEL).arg(key))?.toInteger() == 1
         }
-    }
 
-    override fun startShardProgressAndKeepAlive(shardId: String, handler: Handler<AsyncResult<Void?>>) {
+    override fun startShardProgressAndKeepAlive(shardId: String, handler: Handler<AsyncResult<Void?>>) =
         withRetry(handler) {
             val keepAliveInterval =
                 Duration.ofMillis(serviceOptions.shardProgressExpirationMillis).dividedBy(2).toMillis()
@@ -124,7 +123,6 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
             })
             null
         }
-    }
 
     override fun saveConsumerShardSequenceNumber(
         shardId: String,
@@ -145,7 +143,7 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
         }
     }
 
-    override fun getConsumerShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<JsonObject?>>) {
+    override fun getConsumerShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<JsonObject?>>) =
         withRetry(handler) {
             val sequenceNumberKey = redisKeyFactory.createShardSequenceNumberKey(shardId.asShardIdTyped())
             val response = sendAwait(Request.cmd(Command.GET).arg(sequenceNumberKey))
@@ -156,16 +154,14 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
             }
             sequenceNumberState?.let { JsonObject.mapFrom(SequenceNumber(it.first, it.second)) }
         }
-    }
 
-    override fun deleteShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<Boolean>>) {
+    override fun deleteShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
             val sequenceNumberKey = redisKeyFactory.createShardSequenceNumberKey(shardId.asShardIdTyped())
             sendAwait(Request.cmd(Command.DEL).arg(sequenceNumberKey))?.toBoolean().isTrue()
         }
-    }
 
-    override fun saveFinishedShard(shardId: String, expirationMillis: Long, handler: Handler<AsyncResult<Void?>>) {
+    override fun saveFinishedShard(shardId: String, expirationMillis: Long, handler: Handler<AsyncResult<Void?>>) =
         withRetry(handler) {
             val key = redisKeyFactory.createShardFinishedKey(shardId.asShardIdTyped())
             sendAwait(
@@ -174,10 +170,8 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
             )
             null
         }
-    }
 
-    override fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>) {
-        withRetry(handler) {
+    override fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
             val keyWildcard = redisKeyFactory.createShardFinishedRedisKeyWildcard()
             sendAwait(Request.cmd(Command.KEYS).arg(keyWildcard))?.let { response ->
                 if (response.type() != ResponseType.MULTI) {
@@ -188,35 +182,32 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
                 response.map { extractShardId(it.toString(Charsets.UTF_8)) }
             } ?: emptyList()
         }
-    }
 
     var commandCounter = 0
 
-    override fun incrAndGetMergeReshardingEventCount(childShardId: String, handler: Handler<AsyncResult<Int>>) {
-        logger.info { "Received command number ${++commandCounter}" }
-        withRetry(handler) {
-            val counterKey = redisKeyFactory.createMergeReshardingEventCountKey(childShardId.asShardIdTyped())
-            sendAwait(Request.cmd(Command.INCR).arg(counterKey))?.toInteger()
-                ?: throw VertxKinesisConsumerOrchestraException(
-                    "Unable to increment merge resharding event count of child shard $childShardId"
-                ).also { logger.error { "Unable to increment merge resharding event count of child shard $childShardId" } }
-
-        }
+    override fun flagMergeParentReshardingReady(
+        parentShardId: String,
+        childShardId: String,
+        handler: Handler<AsyncResult<Boolean>>
+    ) = withRetry(handler) {
+        val key = redisKeyFactory.createMergeParentReadyToReshardKey(parentShardId.asShardIdTyped(), childShardId.asShardIdTyped())
+        val pattern = redisKeyFactory.createMergeParentReadyToReshardKeyWildcard(childShardId.asShardIdTyped())
+        luaExecutor.execute(
+            DefaultLuaScriptDescription.SET_VALUE_RETURN_KEY_COUNT_BY_PATTERN,
+            listOf(key),
+            listOf("1", pattern)
+        )?.toInteger() == 2
     }
 
-    override fun deleteMergeReshardingEventCount(childShardId: String, handler: Handler<AsyncResult<Void?>>) {
+    override fun deleteMergeParentsReshardingReadyFlag(childShardId: String, handler: Handler<AsyncResult<Int>>) =
         withRetry(handler) {
-            val counterKey = redisKeyFactory.createMergeReshardingEventCountKey(childShardId.asShardIdTyped())
-            sendAwait(Request.cmd(Command.DEL).arg(counterKey))?.let { response ->
-                response.runCatching {
-                    if (toInteger() != 1) {
-                        logger.warn { "Unable to delete merge resharding event counter of child shard $childShardId" }
-                    }
-                }
-            }
-            null
+            val pattern = redisKeyFactory.createMergeParentReadyToReshardKeyWildcard(childShardId.asShardIdTyped())
+            luaExecutor.execute(
+                DefaultLuaScriptDescription.DELETE_VALUES_BY_KEY_PATTERN_RETURN_DELETED_COUNT,
+                listOf(),
+                listOf(pattern)
+            )?.toInteger() ?: 0
         }
-    }
 
     private fun extractShardId(keyContainsShardId: String) =
         "shardId-${keyContainsShardId.substringAfter("shardId-")}"
