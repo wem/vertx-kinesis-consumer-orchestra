@@ -22,7 +22,6 @@ import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.core.undeployAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.redis.client.Redis
-import io.vertx.redis.client.RedisAPI
 import io.vertx.redis.client.RedisOptions
 import kotlinx.coroutines.launch
 import mu.KLogging
@@ -52,10 +51,9 @@ class OrchestrationVerticle : CoroutineVerticle() {
     }
 
     private val consumerDeploymentLock by lazy {
-        val redisApi = RedisAPI.api(redis)
         ConsumerDeploymentLock(
-            redisApi,
-            LuaExecutor(redisApi),
+            redis,
+            LuaExecutor(redis),
             RedisKeyFactory(options.applicationName, options.streamName),
             Duration.ofMillis(options.consumerDeploymentLockExpiration),
             Duration.ofMillis(options.consumerDeploymentLockRetryInterval)

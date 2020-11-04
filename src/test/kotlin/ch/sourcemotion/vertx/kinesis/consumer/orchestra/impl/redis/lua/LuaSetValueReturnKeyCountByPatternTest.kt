@@ -4,13 +4,12 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTes
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
-import io.vertx.redis.client.RedisAPI
 import org.junit.jupiter.api.Test
 import kotlin.LazyThreadSafetyMode.NONE
 
 class LuaSetValueReturnKeyCountByPatternTest : AbstractRedisTest() {
 
-    private val luaExecutor by lazy(NONE) { LuaExecutor(RedisAPI.api(redisClient)) }
+    private val luaExecutor by lazy(NONE) { LuaExecutor(redisClient) }
 
     @Test
     internal fun set_value_once(testContext: VertxTestContext) = asyncTest(testContext) {

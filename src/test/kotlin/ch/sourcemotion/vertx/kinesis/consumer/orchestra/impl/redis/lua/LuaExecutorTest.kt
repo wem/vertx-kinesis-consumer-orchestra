@@ -4,7 +4,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTes
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
-import io.vertx.redis.client.RedisAPI
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
@@ -14,7 +13,7 @@ internal class LuaExecutorTest : AbstractRedisTest() {
 
     @BeforeEach
     internal fun setUpLuaExecutorTest() {
-        luaExecutor = LuaExecutor(RedisAPI.api(redisClient))
+        luaExecutor = LuaExecutor(redisClient)
     }
 
     @Test

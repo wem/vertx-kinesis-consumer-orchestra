@@ -6,8 +6,10 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoo
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.DefaultLuaScriptDescription
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
-import io.vertx.kotlin.redis.client.delAwait
-import io.vertx.redis.client.RedisAPI
+import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.redis.client.Command
+import io.vertx.redis.client.Redis
+import io.vertx.redis.client.Request
 import kotlinx.coroutines.delay
 import mu.KLogging
 import java.time.Duration
@@ -20,7 +22,7 @@ import java.time.Duration
  * This implementation is a partially adaption of the suggested lock behavior of Redis, called red lock.
  */
 internal class ConsumerDeploymentLock(
-    private val redisApi: RedisAPI,
+    private val redis: Redis,
     private val luaExecutor: LuaExecutor,
     private val redisKeyFactory: RedisKeyFactory,
     private val lockExpiration: Duration,
@@ -59,5 +61,6 @@ internal class ConsumerDeploymentLock(
         }
     }
 
-    private suspend fun releaseLock(deploymentKey: String) = redisApi.delAwait(listOf(deploymentKey))?.toInteger() == 1
+    private suspend fun releaseLock(deploymentKey: String) =
+        redis.sendAwait(Request.cmd(Command.DEL).arg(deploymentKey))?.toInteger() == 1
 }

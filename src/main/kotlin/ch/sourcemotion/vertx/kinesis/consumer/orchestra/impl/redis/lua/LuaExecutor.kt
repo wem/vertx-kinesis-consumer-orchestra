@@ -1,19 +1,21 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua
 
-import io.vertx.kotlin.redis.client.evalshaAwait
-import io.vertx.redis.client.RedisAPI
+import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.redis.client.Command
+import io.vertx.redis.client.Redis
+import io.vertx.redis.client.Request
 import io.vertx.redis.client.Response
 
-class LuaExecutor(private val redisApi: RedisAPI) {
+class LuaExecutor(private val redis: Redis) {
     suspend fun execute(
         scriptDescription: LuaScriptDescription,
         keys: List<String> = emptyList(),
         args: List<String> = emptyList()
     ): Response? {
-        val scriptSha = LuaScriptLoader.loadScriptSha(scriptDescription, redisApi)
-        return redisApi.evalshaAwait(mutableListOf(scriptSha, keys.size.toString()).apply {
-            addAll(keys)
-            addAll(args)
-        })
+        val scriptSha = LuaScriptLoader.loadScriptSha(scriptDescription, redis)
+        val scriptArgs = ArrayList(keys).apply { addAll(args) }
+        val command = Request.cmd(Command.EVALSHA).arg(scriptSha).arg("${keys.size}")
+        scriptArgs.forEach { scriptArg -> command.arg(scriptArg) }
+        return redis.sendAwait(command)
     }
 }

@@ -9,7 +9,6 @@ import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.redis.client.sendAwait
 import io.vertx.redis.client.Command
-import io.vertx.redis.client.RedisAPI
 import io.vertx.redis.client.Request
 import org.junit.jupiter.api.Test
 import java.time.Duration
@@ -25,10 +24,9 @@ internal class ConsumerDeploymentLockTest : AbstractRedisTest() {
     }
 
     private val sut: ConsumerDeploymentLock by lazy {
-        val redisApi = RedisAPI.api(redisClient)
         ConsumerDeploymentLock(
-            redisApi,
-            LuaExecutor(redisApi),
+            redisClient,
+            LuaExecutor(redisClient),
             redisKeyFactory,
             Duration.ofMillis(100),
             Duration.ofMillis(100)
