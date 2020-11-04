@@ -10,11 +10,7 @@ class LuaExecutor(private val redisApi: RedisAPI) {
         keys: List<String> = emptyList(),
         args: List<String> = emptyList()
     ): Response? {
-        val scriptSha =
-            LuaScriptLoader.loadScriptSha(
-                scriptDescription,
-                redisApi
-            )
+        val scriptSha = LuaScriptLoader.loadScriptSha(scriptDescription, redisApi)
         return redisApi.evalshaAwait(mutableListOf(scriptSha, keys.size.toString()).apply {
             addAll(keys)
             addAll(args)
