@@ -2,9 +2,9 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import io.reactiverse.awssdk.VertxSdkClient
 import io.vertx.core.Context
 import io.vertx.core.Vertx
@@ -27,9 +27,15 @@ class KinesisAsyncClientFactory(
 
     companion object {
         const val SHARED_DATA_REF = "kinesis-async-client-factory"
+        private const val CLIENT_CONTEXT_REF = "kinesis-client-instance"
     }
 
     fun createKinesisAsyncClient(context: Context): KinesisAsyncClient {
+        val existingContextInstance = context.get<KinesisAsyncClient?>(CLIENT_CONTEXT_REF)
+        if (existingContextInstance.isNotNull()) {
+            return existingContextInstance
+        }
+
         val awsCredentialsProvider = SharedData.getSharedInstance<ShareableAwsCredentialsProvider>(
             vertx,
             ShareableAwsCredentialsProvider.SHARED_DATA_REF
@@ -44,6 +50,8 @@ class KinesisAsyncClientFactory(
 
         kinesisEndpoint?.let { builder.endpointOverride(URI(it)) }
 
-        return VertxSdkClient.withVertx(builder, context).build()
+        return VertxSdkClient.withVertx(builder, context).build().also {
+            context.put(CLIENT_CONTEXT_REF, it)
+        }
     }
 }
