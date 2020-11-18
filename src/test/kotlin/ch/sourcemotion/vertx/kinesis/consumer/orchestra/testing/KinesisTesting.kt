@@ -96,3 +96,10 @@ suspend fun KinesisAsyncClient.mergeShards(parentShard: Shard, adjacentShard: Sh
         it.adjacentShardToMerge(adjacentShard.shardId())
     }.await()
 }
+
+suspend fun KinesisAsyncClient.mergeShards(parentShards: List<Shard>) {
+    if (parentShards.size != 2) {
+        throw IllegalArgumentException("Only 2 parents can be merged. ${parentShards.size} is an illegal count of parents")
+    }
+    mergeShards(parentShards.first(), parentShards.last())
+}
