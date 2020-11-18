@@ -3,14 +3,19 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.OrchestraCodecs
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesisOrchestraModules
 import io.vertx.core.Context
+import io.vertx.core.Verticle
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.EventBus
+import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxExtension
 import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.extension.ExtendWith
@@ -20,7 +25,8 @@ import java.util.concurrent.atomic.AtomicInteger
 abstract class AbstractVertxTest {
 
     @Volatile
-    protected lateinit var vertx: Vertx
+    @PublishedApi
+    internal lateinit var vertx: Vertx
 
     @Volatile
     protected lateinit var context: Context
@@ -43,6 +49,8 @@ abstract class AbstractVertxTest {
         defaultTestScope = CoroutineScope(context.dispatcher())
     }
 
+    suspend inline fun <reified T : Verticle> deployTestVerticle(options: Any) =
+        vertx.deployVerticleAwait(T::class.java.name, deploymentOptionsOf(config = JsonObject.mapFrom(options)))
 
     protected fun asyncTest(testContext: VertxTestContext, block: suspend CoroutineScope.() -> Unit) {
         defaultTestScope.launch {
@@ -87,6 +95,46 @@ abstract class AbstractVertxTest {
         defaultTestScope.launch {
             runCatching { block(doubleCheckpoint) }
                 .onFailure { testContext.failNow(it) }
+        }
+    }
+
+
+    protected fun VertxTestContext.async(block: suspend CoroutineScope.() -> Unit) {
+        defaultTestScope.launch {
+            runCatching { block() }
+                .onSuccess { completeNow() }
+                .onFailure { failNow(it) }
+        }
+    }
+
+    protected fun VertxTestContext.async(
+        checkpoint: Checkpoint,
+        block: suspend CoroutineScope.(Checkpoint) -> Unit
+    ) {
+        defaultTestScope.launch {
+            runCatching { block(checkpoint) }
+                .onSuccess { checkpoint.flag() }
+                .onFailure { failNow(it) }
+        }
+    }
+
+    protected fun VertxTestContext.async(
+        checkpoints: Int,
+        block: suspend CoroutineScope.(Checkpoint) -> Unit
+    ) = async(checkpoint(checkpoints + 1), block)
+
+    protected fun VertxTestContext.asyncDelayed(
+        checkpoints: Int,
+        delay: Long = 2000,
+        block: suspend CoroutineScope.(Checkpoint) -> Unit
+    ) = async(checkpoint(checkpoints + 1)) { checkpoint ->
+        val controlCheckpoint = checkpoint()
+        block(checkpoint)
+        // We start an own coroutine for the control checkpoint, so the usual test block can end and just the control
+        // checkpoint is pending.
+        launch {
+            delay(delay)
+            controlCheckpoint.flag()
         }
     }
 }
