@@ -1,16 +1,10 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
-import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.deployVerticleAwait
-import io.vertx.kotlin.core.deploymentOptionsOf
 import kotlinx.coroutines.future.await
 import mu.KLogging
 import org.junit.jupiter.api.BeforeEach
@@ -19,13 +13,13 @@ import org.testcontainers.junit.jupiter.Container
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 
 
-internal abstract class AbstractKinesisAndRedisTest(private val deployShardPersistence: Boolean = true) :
-    AbstractRedisTest() {
+internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Boolean = true) :
+    AbstractRedisTest(deployShardPersistence) {
 
     companion object : KLogging() {
         @JvmStatic
         @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.VERSION)
+        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
             .withServices(LocalStackContainer.Service.KINESIS)
     }
 
@@ -43,9 +37,6 @@ internal abstract class AbstractKinesisAndRedisTest(private val deployShardPersi
         asyncTest(testContext) {
             vertx.shareCredentialsProvider()
             vertx.shareKinesisAsyncClientFactory(localStackContainer.getKinesisEndpointOverride())
-            if (deployShardPersistence) {
-                deployShardStatePersistenceService()
-            }
         }
 
     /**
@@ -70,18 +61,5 @@ internal abstract class AbstractKinesisAndRedisTest(private val deployShardPersi
         } else {
             logger.info { "Kinesis stream clean up not necessary" }
         }
-    }
-
-
-    private suspend fun deployShardStatePersistenceService() {
-        val options = RedisShardStatePersistenceServiceVerticleOptions(
-            TEST_APPLICATION_NAME,
-            TEST_STREAM_NAME,
-            redisOptions,
-            VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
-        )
-        vertx.deployVerticleAwait(
-            RedisShardStatePersistenceServiceVerticle::class.java.name, deploymentOptionsOf(JsonObject.mapFrom(options))
-        )
     }
 }

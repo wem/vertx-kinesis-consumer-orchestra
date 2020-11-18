@@ -37,7 +37,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
 
         @JvmStatic
         @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.VERSION)
+        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
             .withServices(Service.DYNAMODB, Service.KINESIS)
     }
 
