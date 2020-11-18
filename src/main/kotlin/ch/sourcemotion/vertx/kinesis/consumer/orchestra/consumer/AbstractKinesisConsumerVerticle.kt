@@ -40,6 +40,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         config.mapTo(KinesisConsumerVerticleOptions::class.java)
     }
 
+    private val eventBusAddr by lazy(NONE) { EventBusAddr(OrchestraClusterName(options.applicationName, options.streamName)) }
+
     private val recordFetcher: RecordFetcher by lazy {
         RecordFetcher(
             kinesisClient,
@@ -246,12 +248,12 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         removeShardProgressFlag()
         shardStatePersistenceService.deleteShardSequenceNumber(shardId)
 
-        val reshardingInfo = ReshardingEventFactory(
+        val reshardingEvent = ReshardingEventFactory(
             streamDesc,
             shardId
         ).createReshardingEvent()
 
-        vertx.eventBus().send(reshardingInfo.getNotificationAddr(), reshardingInfo)
+        vertx.eventBus().send(eventBusAddr.resharding.reshardingNotification, reshardingEvent)
     }
 
     private suspend fun persistShardIsFinished(streamDesc: StreamDescription) {

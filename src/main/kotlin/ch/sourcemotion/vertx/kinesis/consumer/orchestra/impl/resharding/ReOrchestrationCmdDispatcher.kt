@@ -37,6 +37,7 @@ import java.util.*
  * re-orchestration of the shard consumers is initiated. If the shard states are ready, one resharding command dispatcher will notify each (all) other
  * dispatchers. Finally any dispatcher even the one, that initiate the resharding will call [reshardingEventHandler].
  */
+@Deprecated("Will be replaced with ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingOrganizerVerticle")
 abstract class ReOrchestrationCmdDispatcher(
     protected val vertx: Vertx,
     protected val streamName: String,
@@ -82,7 +83,7 @@ abstract class ReOrchestrationCmdDispatcher(
     }
 
     open suspend fun start() {
-        vertx.eventBus().consumer(ReshardingEvent.NOTIFICATION_ADDR, this::onConsumerResharding)
+//        vertx.eventBus().consumer(ReshardingOrganizerVerticle.RESHARDING_EVENT_NOTIFICATION_ADDR, this::onConsumerResharding)
     }
 
     abstract suspend fun stop()
