@@ -5,6 +5,10 @@ import software.amazon.awssdk.services.kinesis.model.Shard
 typealias ShardList = List<Shard>
 typealias ShardIdList = List<ShardId>
 
+data class OrchestraClusterName(val applicationName: String, val streamName: String) {
+    override fun toString() = "$applicationName-$streamName"
+}
+
 data class ShardIterator(val iter: String) {
     override fun toString() = iter
 }
