@@ -102,7 +102,7 @@ internal class ReOrchestrationCmdDispatcherTest : AbstractKinesisAndRedisTest() 
             kinesisClient,
             shardStatePersistenceService,
             defaultTestScope,
-            redisOptions,
+            redisHeimdallOptions,
             eventBusBaseDispatching = eventBusCommunication,
             reshardingEventHandler = block
         ).start()

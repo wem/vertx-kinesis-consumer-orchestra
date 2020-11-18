@@ -9,6 +9,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isFalse
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.requestAwait
@@ -54,7 +56,7 @@ abstract class ReOrchestrationCmdDispatcher(
             kinesisClient: KinesisAsyncClient,
             shardStatePersistence: ShardStatePersistenceServiceAsync,
             scope: CoroutineScope,
-            redisOptions: RedisOptions,
+            redisOptions: RedisHeimdallOptions,
             eventBusBaseDispatching: Boolean = vertx.isClustered,
             reshardingEventHandler: () -> Unit
         ) = if (eventBusBaseDispatching) {
@@ -240,7 +242,7 @@ class RedisReOrchestrationCmdDispatcher(
     kinesisClient: KinesisAsyncClient,
     shardStatePersistence: ShardStatePersistenceServiceAsync,
     scope: CoroutineScope,
-    private val redisOptions: RedisOptions,
+    private val redisOptions: RedisHeimdallOptions,
     reshardingEventHandler: () -> Unit
 ) : ReOrchestrationCmdDispatcher(
     vertx,
@@ -258,7 +260,7 @@ class RedisReOrchestrationCmdDispatcher(
 
     override suspend fun start() {
         super.start()
-        redis = Redis.createClient(vertx, redisOptions)
+        redis = RedisHeimdall.create(vertx, redisOptions)
         subscribeToReOrchestrationCmd(redis.connectAwait())
     }
 

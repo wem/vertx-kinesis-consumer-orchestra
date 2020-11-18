@@ -271,7 +271,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             kinesisClient,
             shardStatePersistenceService,
             defaultTestScope,
-            redisOptions
+            redisHeimdallOptions
         ) {
             defaultTestScope.launch {
                 //Await stream is active again
@@ -315,7 +315,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
             kinesisClient,
             shardStatePersistenceService,
             defaultTestScope,
-            redisOptions
+            redisHeimdallOptions
         ) {
             defaultTestScope.launch {
                 val isParentShardInProgress =
@@ -495,7 +495,6 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         errorHandling,
         fetchIntervalMillis,
         recordsPerBatch,
-        redisOptions
     )
 }
 
