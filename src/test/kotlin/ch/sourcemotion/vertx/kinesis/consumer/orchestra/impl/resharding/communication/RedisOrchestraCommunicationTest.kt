@@ -63,12 +63,11 @@ internal class RedisOrchestraCommunicationTest : OrchestraCommunicationTestDefin
 
     @Test
     override fun multiple_potential_receivers(testContext: VertxTestContext) =
-        testContext.asyncDelayed(1, 200) { checkpoint ->
+        testContext.async(2) { checkpoint ->
             val commandSender = RedisOrchestraCommunication(vertx, redisHeimdallOptions, clusterName) {
                 testContext.failNow(Exception("initiator consume shard command handler should not get called"))
             }.start()
 
-            // Only one receiver should receive the command
             val commandReceivers = listOf(
                 RedisOrchestraCommunication(vertx, redisHeimdallOptions, clusterName) {
                     testContext.verify { it.shouldBe(shardId) }
