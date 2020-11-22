@@ -243,12 +243,12 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         removeShardProgressFlag()
         shardStatePersistenceService.deleteShardSequenceNumber(shardId)
 
-        val reshardingInfo = ReshardingEventFactory(
+        val reshardingEvent = ReshardingEventFactory(
             streamDesc,
             shardId
         ).createReshardingEvent()
 
-        vertx.eventBus().send(reshardingInfo.getNotificationAddr(), reshardingInfo)
+        vertx.eventBus().send(EventBusAddr.resharding.notification, reshardingEvent)
     }
 
     private suspend fun persistShardIsFinished(streamDesc: StreamDescription) {

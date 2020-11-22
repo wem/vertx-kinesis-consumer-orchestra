@@ -1,7 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.createShard
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.shardOf
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test
 internal class ShardExtKtTest {
     @Test
     internal fun parentShardIds_not_a_child_shard() {
-        val splitChild = createShard(ShardIdGenerator.generateShardId(0))
+        val splitChild = shardOf(ShardIdGenerator.generateShardId(0))
         splitChild.parentShardIds().shouldBeEmpty()
 
         splitChild.isSplitChild().shouldBeFalse()
@@ -28,7 +28,7 @@ internal class ShardExtKtTest {
     internal fun parentShardIds_split_shard() {
         val parentShardId = ShardIdGenerator.generateShardId(0)
         val splitChildShardId = ShardIdGenerator.generateShardId(1)
-        val splitChild = createShard(splitChildShardId, parentShardId = parentShardId)
+        val splitChild = shardOf(splitChildShardId, parentShardId = parentShardId)
         splitChild.parentShardIds().shouldContainExactly(parentShardId)
 
         splitChild.isSplitChild().shouldBeTrue()
@@ -44,7 +44,7 @@ internal class ShardExtKtTest {
         val parentShardId = ShardIdGenerator.generateShardId(1)
         val adjacentParentShardId = ShardIdGenerator.generateShardId(2)
         val mergeChildShardId = ShardIdGenerator.generateShardId(3)
-        val mergeChildShard = createShard(
+        val mergeChildShard = shardOf(
             mergeChildShardId,
             parentShardId = parentShardId,
             adjacentParentShardId = adjacentParentShardId

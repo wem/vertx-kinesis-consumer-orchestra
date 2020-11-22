@@ -12,6 +12,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.*
 /**
  * Processing bundle which contains / defines the shards an orchestra instance will process / consume.
  */
+@Deprecated("Will be replaced by ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ConsumerShardIdListFactory")
 data class ShardProcessingBundle(val shardIds: ShardIdList) {
     companion object {
         fun create(
