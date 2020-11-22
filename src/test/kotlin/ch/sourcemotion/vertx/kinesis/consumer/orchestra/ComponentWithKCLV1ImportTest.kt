@@ -96,7 +96,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
                     TEST_STREAM_NAME,
                     credentialsProviderSupplier = { Localstack.credentialsProvider },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
-                    redisOptions = redisOptions,
+                    redisOptions = redisHeimdallOptions,
                     consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
                     kinesisEndpoint = localStackContainer.getKinesisEndpointOverride(),
                     kclV1ImportOptions = KCLV1ImportOptions(

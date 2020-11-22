@@ -5,6 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.KGenericContainer.Companion.REDIS_PORT
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import eu.rekawek.toxiproxy.model.ToxicDirection
 import io.vertx.junit5.VertxTestContext
@@ -47,11 +48,11 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
     private fun getRedisServerPort() = redisProxy.proxyPort
 
 
-    protected val redisOptions: RedisHeimdallOptions by lazy {
+    protected val redisHeimdallOptions: RedisHeimdallOptions by lazy {
         RedisHeimdallOptions(RedisOptions().setConnectionString("redis://${getRedisServerHost()}:${getRedisServerPort()}"))
     }
 
-    protected val redisClient: Redis by lazy { Redis.createClient(vertx, redisOptions) }
+    protected val redisClient: Redis by lazy { RedisHeimdall.create(vertx, redisHeimdallOptions) }
 
     @BeforeEach
     internal fun cleanRedisBeforeTest(testContext: VertxTestContext) = asyncTest(testContext) {
@@ -106,7 +107,7 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
         val options = RedisShardStatePersistenceServiceVerticleOptions(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
-            redisOptions,
+            redisHeimdallOptions,
             VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
         )
         deployTestVerticle<RedisShardStatePersistenceServiceVerticle>(options)

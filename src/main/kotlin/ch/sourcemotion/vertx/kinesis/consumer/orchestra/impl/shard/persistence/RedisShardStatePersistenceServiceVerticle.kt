@@ -24,7 +24,10 @@ import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.eventbus.unregisterAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.redis.client.sendAwait
-import io.vertx.redis.client.*
+import io.vertx.redis.client.Command
+import io.vertx.redis.client.Redis
+import io.vertx.redis.client.Request
+import io.vertx.redis.client.ResponseType
 import io.vertx.redis.client.impl.types.ErrorType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -44,12 +47,7 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
             serviceOptions.streamName
         )
     }
-    private val redisHeimdallOptions by lazy(NONE) {
-        RedisHeimdallOptions(serviceOptions.redisOptions).apply {
-            reconnectingNotifications = false
-            reconnectInterval = serviceOptions.reconnectIntervalMillis
-        }
-    }
+    private val redisHeimdallOptions by lazy(NONE) { serviceOptions.redisHeimdallOptions }
 
     private var serviceRegistration: MessageConsumer<JsonObject>? = null
 
@@ -245,7 +243,6 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
 data class RedisShardStatePersistenceServiceVerticleOptions(
     val applicationName: String,
     val streamName: String,
-    val redisOptions: RedisOptions,
+    val redisHeimdallOptions: RedisHeimdallOptions,
     val shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
-    val reconnectIntervalMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS
 )
