@@ -34,7 +34,7 @@ internal class ConsumerShardIdListFactoryTest {
      * - 1 merge child shard with unfinished parents.
      */
     @Test
-    internal fun not_finished_and_merged_with_not_finished_parents() {
+    internal fun not_finished_and_merge_parents_notfinished() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
@@ -54,7 +54,7 @@ internal class ConsumerShardIdListFactoryTest {
      * - 1 merge child shard with a finished parent and unfinished adjacent parent.
      */
     @Test
-    internal fun not_finished_and_merged_with_not_finished_parent() {
+    internal fun not_finished_and_merged_with_finished_adjacentParent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 
@@ -70,7 +70,7 @@ internal class ConsumerShardIdListFactoryTest {
      * - 1 merge child shard with a finished adjacent parent and unfinished parent.
      */
     @Test
-    internal fun not_finished_and_merged_with_not_finished_adjacent() {
+    internal fun not_finished_and_merged_with_finished_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
         val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
 

@@ -1,11 +1,13 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isResharded
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.parentShardIds
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 
 
 /**
  * Factory to create list of shards they should / could be consumed, according a maximum.
- * Also the rule will be applied, that children of parents they are not finished yet will not get consumed.
+ * Also the rule will be applied, that children of parents they are not finished will not get consumed yet.
  */
 object ConsumerShardIdListFactory {
     fun create(
@@ -24,70 +26,39 @@ object ConsumerShardIdListFactory {
         val shardIdsToConsume = mutableListOf<ShardId>()
         val pendingShards = availableShards.toMutableList()
 
-        // Add not finished merge parents for processing
-        shardIdsToConsume.addAll(
-            getNotFinishedMergeParents(
-                pendingShards.filter { it.isMergedChild() },
-                availableShardIds,
-                finishedShardIds
-            )
-        )
-        pendingShards.removeAll { shardIdsToConsume.contains(it.shardIdTyped()) }
-
-        // Add not finished split parents for processing
-        shardIdsToConsume.addAll(
-            getNotFinishedSplitParents(
-                pendingShards.filter { it.isSplitChild() },
-                availableShardIds,
-                finishedShardIds
-            )
-        )
-        pendingShards.removeAll { shardIdsToConsume.contains(it.shardIdTyped()) }
-
-        shardIdsToConsume.addAll(
-            pendingShards.asSequence().filterNot {
-                // prevent split children from processing before their parents are done
-                it.isSplitChild() && shardIdsToConsume.contains(it.parentShardIdTyped())
-            }.filterNot {
-                it.isMergedChild() &&
-                        // prevent merge children from processing before their both parents are done
-                        (shardIdsToConsume.contains(it.parentShardIdTyped()) ||
-                                shardIdsToConsume.contains(it.adjacentParentShardIdTyped()))
-            }.map { it.shardIdTyped() }.filterNot { shardIdsToConsume.contains(it) }.toList()
+        val notFinishedMergeParentsByChildren = getNotFinishedParentsByChildren(
+            pendingShards.filter { it.isResharded() },
+            availableShardIds,
+            finishedShardIds
         )
 
-        return shardIdsToConsume.adjustList(maxShardCount)
+        notFinishedMergeParentsByChildren.forEach { (child, parents) ->
+            if (parents.isNotEmpty()) {
+                shardIdsToConsume.addAll(parents)
+            } else {
+                shardIdsToConsume.add(child)
+            }
+            pendingShards.removeAll { child == it.shardIdTyped() }
+            pendingShards.removeAll { parents.contains(it.shardIdTyped()) }
+        }
+
+        shardIdsToConsume.addAll(
+            pendingShards.filterNot { finishedShardIds.contains(it.shardIdTyped()) }.map { it.shardIdTyped() }
+        )
+
+        return shardIdsToConsume.distinct().adjustList(maxShardCount)
     }
 
-    /**
-     * @return Shard id list of merge resharding parent shards, they are not flagged as finished and are available.
-     * The available check is necessary, because when the shards are not recently created and there is no orchestra
-     * persistence state present.
-     */
-    private fun getNotFinishedMergeParents(
+    private fun getNotFinishedParentsByChildren(
         mergedChildren: ShardList,
         availableShardIds: ShardIdList,
         finishedShardIds: ShardIdList
-    ): ShardIdList =
-        mergedChildren.flatMap { listOf(it.parentShardIdTyped(), it.adjacentParentShardIdTyped()) }
-            .filterNotNull()
-            .filter { availableShardIds.contains(it) }
-            .filterNot { finishedShardIds.contains(it) }
-
-    /**
-     * @return Shard id list of split resharding parent shards, they are not flagged as finished.
-     * The available check is necessary, because when the shards are not recently created and there is no orchestra
-     * persistence state present.
-     */
-    private fun getNotFinishedSplitParents(
-        splitChildren: ShardList,
-        availableShardIds: ShardIdList,
-        finishedShardIds: ShardIdList
-    ): ShardIdList =
-        splitChildren.mapNotNull { it.parentShardIdTyped() }
-            .filter { availableShardIds.contains(it) }
-            .filterNot { finishedShardIds.contains(it) }
-            .distinct() // Distinct because split parent shard is parent of two children
+    ): Map<ShardId, ShardIdList> =
+        mergedChildren.associate {
+            it.shardIdTyped() to it.parentShardIds().filter { parentShardId ->
+                availableShardIds.contains(parentShardId)
+            }.filterNot { parentShardId -> finishedShardIds.contains(parentShardId) }
+        }
 
     private fun ShardIdList.adjustList(maxShardCount: Int): ShardIdList = take(maxShardCount)
 }
