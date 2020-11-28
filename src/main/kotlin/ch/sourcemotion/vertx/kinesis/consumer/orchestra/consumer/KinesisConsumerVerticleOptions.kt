@@ -19,5 +19,6 @@ internal data class KinesisConsumerVerticleOptions(
     val errorHandling: ErrorHandling,
     val kinesisFetchIntervalMillis: Long,
     val recordsPerBatchLimit: Int,
-    val sequenceNbrImportAddress: String? = null
+    val sequenceNbrImportAddress: String? = null,
+    val shardProgressExpirationMillis : Long
 )

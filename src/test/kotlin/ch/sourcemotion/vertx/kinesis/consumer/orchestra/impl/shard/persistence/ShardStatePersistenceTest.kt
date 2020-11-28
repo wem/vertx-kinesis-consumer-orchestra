@@ -82,16 +82,6 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     }
 
     @Test
-    internal fun start_shard_progress_keepalive(testContext: VertxTestContext) = asyncTest(testContext) {
-        sut.startShardProgressAndKeepAlive(shardId)
-        delay(DEFAULT_TEST_EXPIRATION_MILLIS * 3)
-        sut.getShardIdsInProgress().shouldContainExactly(shardId)
-        sut.flagShardNoMoreInProgress(shardId).shouldBeTrue()
-        delay(DEFAULT_TEST_EXPIRATION_MILLIS * 3)
-        sut.getShardIdsInProgress().shouldBeEmpty()
-    }
-
-    @Test
     internal fun save_consumer_shard_sequence(testContext: VertxTestContext) = asyncTest(testContext) {
         val sequenceNumber = "sequencenumber".asSequenceNumberAt()
         sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)

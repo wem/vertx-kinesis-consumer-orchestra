@@ -5,7 +5,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIdTyped
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isTrue
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoolean
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
@@ -32,8 +31,6 @@ import io.vertx.redis.client.impl.types.ErrorType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import mu.KLogging
-import java.time.Duration
-import java.util.*
 import kotlin.LazyThreadSafetyMode.NONE
 
 class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStatePersistenceService {
@@ -55,8 +52,6 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
 
     private val luaExecutor by lazy(NONE) { LuaExecutor(redis) }
 
-    private val keepAliveTimerIds = Collections.synchronizedMap(mutableMapOf<String, Long>())
-
     private var running: Boolean? = null
 
     override suspend fun start() {
@@ -69,20 +64,7 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
     override suspend fun stop() {
         running = false
         serviceRegistration?.runCatching { unregisterAwait() }
-        runCatching { cancelProgressKeepAlive() }
         logger.info { "Kinesis consumer orchestra Redis shard state persistence stopped" }
-    }
-
-    private fun cancelProgressKeepAlive(shardId: String? = null) {
-        val filteredTimers = if (shardId.isNotNullOrBlank()) {
-            keepAliveTimerIds.filter { it.key == shardId }
-        } else {
-            keepAliveTimerIds
-        }
-        filteredTimers.forEach {
-            runCatching { vertx.cancelTimer(it.value) }
-            keepAliveTimerIds.remove(it.key)
-        }
     }
 
     override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
@@ -103,23 +85,8 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
 
     override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
-            cancelProgressKeepAlive(shardId)
             val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
             sendAwait(Request.cmd(Command.DEL).arg(key))?.toInteger() == 1
-        }
-
-    override fun startShardProgressAndKeepAlive(shardId: String, handler: Handler<AsyncResult<Void?>>) =
-        withRetry(handler) {
-            val keepAliveInterval =
-                Duration.ofMillis(serviceOptions.shardProgressExpirationMillis).dividedBy(2).toMillis()
-            flagShardInProgress(shardId, Handler {
-                // Make sure keep alive updated enough early / often
-                val keepAliveTimerId = vertx.setPeriodic(keepAliveInterval) {
-                    flagShardInProgress(shardId, Handler { })
-                }
-                keepAliveTimerIds[shardId] = keepAliveTimerId
-            })
-            null
         }
 
     override fun saveConsumerShardSequenceNumber(

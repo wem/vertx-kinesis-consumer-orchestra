@@ -41,14 +41,6 @@ interface ShardStatePersistenceService {
     fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>)
 
     /**
-     * Like [flagShardInProgress], but will keep the flagged state until [flagShardNoMoreInProgress] is called.
-     * Different to [flagShardInProgress] this call should hold the progress flag keep alive at least
-     * as [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.shardProgressExpiration]
-     * is configured.
-     */
-    fun startShardProgressAndKeepAlive(shardId: String, handler: Handler<AsyncResult<Void?>>)
-
-    /**
      * Persistence of the current "cursor" or in context of Kinesis sequence number of the latest successful proceeded
      * record.
      */
@@ -105,9 +97,6 @@ class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersiste
 
     suspend fun flagShardNoMoreInProgress(shardId: ShardId) =
         awaitResult<Boolean> { flagShardNoMoreInProgress(shardId.id, it) }
-
-    suspend fun startShardProgressAndKeepAlive(shardId: ShardId) =
-        awaitResult<Void?> { startShardProgressAndKeepAlive(shardId.id, it) }
 
     suspend fun saveConsumerShardSequenceNumber(shardId: ShardId, sequenceNumber: SequenceNumber) =
         awaitResult<Void?> {

@@ -13,10 +13,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.*
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ChildShard
@@ -98,10 +95,10 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun startConsumer() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
+        startShardInProgressKeepAlive()
+
         suspendCancellableCoroutine<Unit> { cont ->
             launch {
-                shardStatePersistence.startShardProgressAndKeepAlive(shardId)
-
                 val startFetchPosition = StartFetchPositionLookup(
                     vertx,
                     consumerInfo,
@@ -123,6 +120,16 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
                     cont.resume(Unit)
                 }
+            }
+        }
+    }
+
+    private suspend fun startShardInProgressKeepAlive() {
+        shardStatePersistence.flagShardInProgress(options.shardId)
+        launch {
+            while (isActive && running) {
+                delay(options.shardProgressExpirationMillis / 2)
+                shardStatePersistence.flagShardInProgress(options.shardId)
             }
         }
     }

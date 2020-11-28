@@ -169,7 +169,8 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
             options.errorHandling,
             options.kinesisFetchInterval,
             options.recordsPerBatchLimit,
-            options.sequenceNumberImportAddress
+            options.sequenceNumberImportAddress,
+            options.shardProgressExpirationMillis
         )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -189,7 +190,8 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         val consumerDeploymentLockRetryInterval: Long,
         var consumerVerticleClass: String,
         var consumerVerticleConfig: Map<String, Any>,
-        val sequenceNumberImportAddress: String? = null
+        val sequenceNumberImportAddress: String? = null,
+        val shardProgressExpirationMillis : Long
     )
 }
 
@@ -206,5 +208,6 @@ internal fun VertxKinesisOrchestraOptions.asConsumerControlOptions() = ConsumerC
     consumerDeploymentLockRetryInterval.toMillis(),
     consumerVerticleClass,
     consumerVerticleOptions.map,
-    kclV1ImportOptions?.importAddress
+    kclV1ImportOptions?.importAddress,
+    shardProgressExpiration.toMillis()
 )

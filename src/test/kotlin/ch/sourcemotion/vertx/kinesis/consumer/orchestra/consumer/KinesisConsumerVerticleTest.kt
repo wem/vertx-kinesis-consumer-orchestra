@@ -2,6 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.TestConsumerVerticle.Companion.RECORD_SEND_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.EventBusAddr
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
@@ -388,6 +389,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         errorHandling,
         fetchIntervalMillis,
         recordsPerBatch,
+        shardProgressExpirationMillis = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
     )
 }
 
