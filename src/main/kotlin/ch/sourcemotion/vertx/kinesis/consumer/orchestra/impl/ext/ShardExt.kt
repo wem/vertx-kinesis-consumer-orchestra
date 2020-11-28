@@ -3,6 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIdTyped
+import software.amazon.awssdk.services.kinesis.model.ChildShard
 import software.amazon.awssdk.services.kinesis.model.Shard
 
 /**
@@ -15,7 +16,10 @@ fun Shard.isMergedChild() = parentShardIds().size == 2
  */
 fun Shard.isSplitChild() = parentShardIds().size == 1
 
+fun Shard.isResharded() = parentShardIds().isNotEmpty()
+
 fun Shard.shardIdTyped() = ShardId(this.shardId())
+fun ChildShard.shardIdTyped() = ShardId(this.shardId())
 fun Shard.parentShardIdTyped() = this.parentShardId()?.let { ShardId(it) }
 fun Shard.adjacentParentShardIdTyped() = this.adjacentParentShardId()?.let { ShardId(it) }
 
