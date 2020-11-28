@@ -8,7 +8,15 @@ enum class ReshardingType {
     MERGE
 }
 
-abstract class ReshardingEvent(val reshardingType: ReshardingType)
+abstract class ReshardingEvent(val reshardingType: ReshardingType) {
+    companion object {
+        fun create(parentShardId: ShardId, childShardIds: List<ShardId>) = when (childShardIds.size) {
+            1 -> MergeReshardingEvent(parentShardId, childShardIds.first())
+            2 -> SplitReshardingEvent(parentShardId, childShardIds)
+            else -> throw IllegalStateException("Unable to create resharding event from a parent with an unexpected count of child shards ${childShardIds.size}")
+        }
+    }
+}
 
 /**
  * Event fired by consumer in the case if the consumed shard got merged with another.
