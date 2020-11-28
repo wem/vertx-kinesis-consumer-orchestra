@@ -1,6 +1,5 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asSequenceNumberAt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
@@ -42,7 +41,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
         val options = RedisShardStatePersistenceServiceVerticleOptions(
             APPLICATION_NAME,
             STREAM_NAME,
-            redisOptions.apply { maxPoolSize = 8 },
+            redisHeimdallOptions.apply { redisOptions.maxPoolSize = 8 },
             DEFAULT_TEST_EXPIRATION_MILLIS
         )
         deploymentId = vertx.deployVerticleAwait(
@@ -196,7 +195,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             preventDataToRedisPassingAfter(2)
 
-            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2)
+            removeRedisToxiesAfter(redisHeimdallOptions.reconnectInterval * 2)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -210,7 +209,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             preventDataFromRedisPassingAfter(2)
 
-            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2)
+            removeRedisToxiesAfter(redisHeimdallOptions.reconnectInterval * 2)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -224,7 +223,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             closeConnectionToRedis()
 
-            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3)
+            removeRedisToxiesAfter(redisHeimdallOptions.reconnectInterval * 3)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -250,6 +249,6 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
                 }
             }
 
-            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3)
+            removeRedisToxiesAfter(redisHeimdallOptions.reconnectInterval * 3)
         }
 }

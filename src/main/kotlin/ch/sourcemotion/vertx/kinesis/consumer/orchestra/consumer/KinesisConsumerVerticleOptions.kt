@@ -3,7 +3,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import io.vertx.redis.client.RedisOptions
 
 /**
  * Basic options of [AbstractKinesisConsumerVerticle]. For internal use only, but if the user provides a configuration
@@ -18,6 +17,5 @@ internal data class KinesisConsumerVerticleOptions(
     val errorHandling: ErrorHandling,
     val kinesisFetchIntervalMillis: Long,
     val recordsPerBatchLimit: Int,
-    val redisOptions: RedisOptions,
     val sequenceNbrImportAddress: String? = null
 )

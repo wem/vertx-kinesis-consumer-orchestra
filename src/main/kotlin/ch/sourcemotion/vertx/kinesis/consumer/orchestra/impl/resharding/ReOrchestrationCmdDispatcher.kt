@@ -9,6 +9,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isFalse
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.requestAwait
@@ -37,6 +39,7 @@ import java.util.*
  * re-orchestration of the shard consumers is initiated. If the shard states are ready, one resharding command dispatcher will notify each (all) other
  * dispatchers. Finally any dispatcher even the one, that initiate the resharding will call [reshardingEventHandler].
  */
+@Deprecated("Will be replaced with ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingOrganizerVerticle")
 abstract class ReOrchestrationCmdDispatcher(
     protected val vertx: Vertx,
     protected val streamName: String,
@@ -53,7 +56,7 @@ abstract class ReOrchestrationCmdDispatcher(
             kinesisClient: KinesisAsyncClient,
             shardStatePersistence: ShardStatePersistenceServiceAsync,
             scope: CoroutineScope,
-            redisOptions: RedisOptions,
+            redisOptions: RedisHeimdallOptions,
             eventBusBaseDispatching: Boolean = vertx.isClustered,
             reshardingEventHandler: () -> Unit
         ) = if (eventBusBaseDispatching) {
@@ -82,7 +85,7 @@ abstract class ReOrchestrationCmdDispatcher(
     }
 
     open suspend fun start() {
-        vertx.eventBus().consumer(ReshardingEvent.NOTIFICATION_ADDR, this::onConsumerResharding)
+//        vertx.eventBus().consumer(ReshardingOrganizerVerticle.RESHARDING_EVENT_NOTIFICATION_ADDR, this::onConsumerResharding)
     }
 
     abstract suspend fun stop()
@@ -239,7 +242,7 @@ class RedisReOrchestrationCmdDispatcher(
     kinesisClient: KinesisAsyncClient,
     shardStatePersistence: ShardStatePersistenceServiceAsync,
     scope: CoroutineScope,
-    private val redisOptions: RedisOptions,
+    private val redisOptions: RedisHeimdallOptions,
     reshardingEventHandler: () -> Unit
 ) : ReOrchestrationCmdDispatcher(
     vertx,
@@ -257,7 +260,7 @@ class RedisReOrchestrationCmdDispatcher(
 
     override suspend fun start() {
         super.start()
-        redis = Redis.createClient(vertx, redisOptions)
+        redis = RedisHeimdall.create(vertx, redisOptions)
         subscribeToReOrchestrationCmd(redis.connectAwait())
     }
 

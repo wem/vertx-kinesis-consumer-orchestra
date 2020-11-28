@@ -13,6 +13,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecut
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReOrchestrationCmdDispatcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.ShardProcessingBundle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.eventbus.DeliveryOptions
@@ -21,8 +23,6 @@ import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.core.undeployAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import io.vertx.redis.client.Redis
-import io.vertx.redis.client.RedisOptions
 import kotlinx.coroutines.launch
 import mu.KLogging
 import java.time.Duration
@@ -37,7 +37,7 @@ class OrchestrationVerticle : CoroutineVerticle() {
         config.mapTo(OrchestrationVerticleOptions::class.java)
     }
 
-    private val redis by lazy { Redis.createClient(vertx, options.redisOptions) }
+    private val redis by lazy { RedisHeimdall.create(vertx, options.redisHeimdallOptions) }
 
     private val kinesisClient by lazy {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
@@ -68,7 +68,7 @@ class OrchestrationVerticle : CoroutineVerticle() {
             kinesisClient,
             shardStatePersistence,
             this,
-            options.redisOptions,
+            options.redisHeimdallOptions,
             reshardingEventHandler = this::reOrchestrate
         )
     }
@@ -153,7 +153,6 @@ class OrchestrationVerticle : CoroutineVerticle() {
             options.errorHandling,
             options.kinesisFetchInterval,
             options.recordsPerBatchLimit,
-            options.redisOptions,
             options.sequenceNumberImportAddress
         )
 }
@@ -165,7 +164,7 @@ internal class OrchestrationVerticleOptions(
     // We not force the user to add Java date Jackson module
     var kinesisFetchInterval: Long,
     var recordsPerBatchLimit: Int,
-    var redisOptions: RedisOptions,
+    var redisHeimdallOptions: RedisHeimdallOptions,
 
     var shardIteratorStrategy: ShardIteratorStrategy,
     var loadConfiguration: LoadConfiguration,

@@ -2,9 +2,9 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.json.JsonObject
-import io.vertx.redis.client.RedisOptions
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.regions.Region
@@ -68,19 +68,15 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     var kinesisEndpoint: String? = null,
 
     /**
-     * Vert.x Redis options. Used to configure Redis clients they access shard.
+     * Vert.x Redis options. Used for shard state persistence (sequence number position of consuming shard) and
+     * VKCO cluster communication (if not Vert.x is used)
      */
-    var redisOptions: RedisOptions,
+    var redisOptions: RedisHeimdallOptions,
 
     /**
      * AWS SDK metrics options
      */
     var awsClientMetricOptions: AwsClientMetricOptions = DisabledAwsClientMetricOptions(),
-
-    /**
-     * If the connection to Redis get lost, the orchestra will try to reconnect to Redis in this interval.
-     */
-    val redisReconnectionInterval: Long = DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS,
 
     /**
      * Strategy how and which shard iterator should be used. Please read Javadoc of
@@ -156,7 +152,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     companion object {
         const val DEFAULT_KINESIS_FETCH_INTERVAL_MILLIS = 1000L
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
-        const val DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS = 2000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
 

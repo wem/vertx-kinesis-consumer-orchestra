@@ -35,7 +35,7 @@ internal class KCLV1ImporterTest : AbstractVertxTest() {
 
         @JvmStatic
         @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.VERSION)
+        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
             .withServices(DYNAMODB)
 
     }

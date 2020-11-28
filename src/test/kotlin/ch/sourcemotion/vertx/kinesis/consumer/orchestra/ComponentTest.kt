@@ -32,7 +32,7 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
                 TEST_STREAM_NAME,
                 credentialsProviderSupplier = { Localstack.credentialsProvider },
                 consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,
-                redisOptions = redisOptions,
+                redisOptions = redisHeimdallOptions,
                 consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
                 kinesisEndpoint = localStackContainer.getKinesisEndpointOverride()
             )

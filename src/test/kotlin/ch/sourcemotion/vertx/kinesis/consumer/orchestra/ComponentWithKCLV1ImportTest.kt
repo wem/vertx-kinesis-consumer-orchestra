@@ -37,7 +37,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
 
         @JvmStatic
         @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.VERSION)
+        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
             .withServices(Service.DYNAMODB, Service.KINESIS)
     }
 
@@ -96,7 +96,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
                     TEST_STREAM_NAME,
                     credentialsProviderSupplier = { Localstack.credentialsProvider },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
-                    redisOptions = redisOptions,
+                    redisOptions = redisHeimdallOptions,
                     consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
                     kinesisEndpoint = localStackContainer.getKinesisEndpointOverride(),
                     kclV1ImportOptions = KCLV1ImportOptions(

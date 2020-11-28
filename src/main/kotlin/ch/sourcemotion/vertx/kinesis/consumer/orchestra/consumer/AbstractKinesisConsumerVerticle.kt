@@ -11,7 +11,6 @@ import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import io.vertx.redis.client.Redis
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -36,11 +35,11 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         internal const val CONSUMER_START_CMD_ADDR = "/kinesis-consumer-orchester/start-consumer"
     }
 
-    private val options: KinesisConsumerVerticleOptions by lazy {
+    private val options: KinesisConsumerVerticleOptions by lazy(NONE) {
         config.mapTo(KinesisConsumerVerticleOptions::class.java)
     }
 
-    private val recordFetcher: RecordFetcher by lazy {
+    private val recordFetcher: RecordFetcher by lazy(NONE) {
         RecordFetcher(
             kinesisClient,
             options.recordsPerBatchLimit,
@@ -50,8 +49,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             options.kinesisFetchIntervalMillis
         ) { consumerInfo }
     }
-
-    private val redis by lazy(NONE) { Redis.createClient(vertx, options.redisOptions) }
 
     private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
@@ -246,12 +243,12 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         removeShardProgressFlag()
         shardStatePersistenceService.deleteShardSequenceNumber(shardId)
 
-        val reshardingInfo = ReshardingEventFactory(
+        val reshardingEvent = ReshardingEventFactory(
             streamDesc,
             shardId
         ).createReshardingEvent()
 
-        vertx.eventBus().send(reshardingInfo.getNotificationAddr(), reshardingInfo)
+        vertx.eventBus().send(EventBusAddr.resharding.notification, reshardingEvent)
     }
 
     private suspend fun persistShardIsFinished(streamDesc: StreamDescription) {

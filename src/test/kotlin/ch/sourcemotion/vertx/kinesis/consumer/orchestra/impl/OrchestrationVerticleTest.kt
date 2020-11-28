@@ -196,7 +196,7 @@ internal class OrchestrationVerticleTest : AbstractKinesisAndRedisTest() {
         VertxKinesisOrchestraOptions(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
-            redisOptions = redisOptions,
+            redisOptions = redisHeimdallOptions,
             loadConfiguration = loadConfiguration,
             consumerVerticleClass = verticleClassName
         ).asOrchestraVerticleOptions()
