@@ -8,6 +8,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.vertx.core.eventbus.Message
+import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
@@ -46,8 +47,8 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
 
     override suspend fun start() {
         vertx.eventBus().consumer(
-            EventBusAddr.detection.shardsConsumedCountNotification, ::onShardsConsumedCountNotification
-        )
+            EventBusAddr.detection.activeConsumerCountNotification, ::onActiveConsumerCountNotification
+        ).completionHandlerAwait()
         logger.info { "Not consumed shard detector verticle started" }
     }
 
@@ -56,7 +57,7 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
         logger.info { "Not consumed shard detector verticle stopped" }
     }
 
-    private fun onShardsConsumedCountNotification(msg: Message<Int>) {
+    private fun onActiveConsumerCountNotification(msg: Message<Int>) {
         val shardsConsumedCount = msg.body()
         if (shardsConsumedCount < options.maxShardCountToConsume) {
             possibleShardCountToStartConsume = options.maxShardCountToConsume - shardsConsumedCount

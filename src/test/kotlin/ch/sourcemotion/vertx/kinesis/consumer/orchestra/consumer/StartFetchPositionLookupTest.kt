@@ -7,6 +7,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIterator
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractVertxTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_CLUSTER_ORCHESTRA_NAME
 import com.nhaarman.mockitokotlin2.any
 import com.nhaarman.mockitokotlin2.doReturn
 import com.nhaarman.mockitokotlin2.eq
@@ -137,13 +138,13 @@ internal class StartFetchPositionLookupTest : AbstractVertxTest() {
     }
 
     private fun createForceLatestShardIteratorOptions() = mock<KinesisConsumerVerticleOptions> {
-        on { streamName } doReturn TEST_STREAM_NAME
+        on { clusterName } doReturn TEST_CLUSTER_ORCHESTRA_NAME
         on { shardIteratorStrategy } doReturn ShardIteratorStrategy.FORCE_LATEST
     }
 
     private fun createExistingOrLatestShardIteratorOptions(sequenceNbrImportAddr: String? = null) =
         mock<KinesisConsumerVerticleOptions> {
-            on { streamName } doReturn TEST_STREAM_NAME
+            on { clusterName } doReturn TEST_CLUSTER_ORCHESTRA_NAME
             on { shardIteratorStrategy } doReturn ShardIteratorStrategy.EXISTING_OR_LATEST
             on { this.sequenceNbrImportAddress } doReturn sequenceNbrImportAddr
         }

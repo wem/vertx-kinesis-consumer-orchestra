@@ -49,8 +49,11 @@ abstract class AbstractVertxTest {
         defaultTestScope = CoroutineScope(context.dispatcher())
     }
 
-    suspend inline fun <reified T : Verticle> deployTestVerticle(options: Any) =
-        vertx.deployVerticleAwait(T::class.java.name, deploymentOptionsOf(config = JsonObject.mapFrom(options)))
+    suspend inline fun <reified T : Verticle> deployTestVerticle(options: Any, instances: Int = 1) =
+        vertx.deployVerticleAwait(
+            T::class.java.name,
+            deploymentOptionsOf(config = JsonObject.mapFrom(options), instances = instances)
+        )
 
     protected fun asyncTest(testContext: VertxTestContext, block: suspend CoroutineScope.() -> Unit) {
         defaultTestScope.launch {
@@ -125,7 +128,7 @@ abstract class AbstractVertxTest {
 
     protected fun VertxTestContext.asyncDelayed(
         checkpoints: Int,
-        delay: Long = 2000,
+        delay: Long = 500,
         block: suspend CoroutineScope.(Checkpoint) -> Unit
     ) = async(checkpoint(checkpoints + 1)) { checkpoint ->
         val controlCheckpoint = checkpoint()

@@ -12,6 +12,7 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
@@ -104,7 +105,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     val sequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
                     testContext.verify {
                         shardId.shouldBe(parentShardId)
-                        sequenceNumber.shouldNotBeNull()
+                        sequenceNumber.shouldBeNull()
                     }
                     msg.ack()
                     checkpoint.flag()
@@ -137,6 +138,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         val parentShard = streamDescription.shards().first()
         kinesisClient.splitShardFair(parentShard)
         val childShards = kinesisClient.streamDescriptionWhenActiveAwait(streamDescription.streamName()).shards()
+            .filterNot { it.shardId() == streamDescription.shards().first().shardId() }
         return childShards.map { it.shardIdTyped() } to parentShard.shardIdTyped()
     }
 

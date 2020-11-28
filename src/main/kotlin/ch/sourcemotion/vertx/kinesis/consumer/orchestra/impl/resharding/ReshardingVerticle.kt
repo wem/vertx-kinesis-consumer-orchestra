@@ -59,12 +59,8 @@ internal class ReshardingVerticle : CoroutineVerticle() {
     private suspend fun onMergeReshardingEvent(event: MergeReshardingEvent) {
         val (parentShardId, childShardId) = event
         logger.info { "Received merge resharding event. Parent shard: $parentShardId, child shard: $childShardId" }
-        persistChildShardsIterators(event)
-        // We stop the consumer of the finished parent shard. So this orchestra instance is able to consume
-        // from child shard when the other parent got finished too.
-        sendLocalStopShardConsumerCmd(parentShardId)
 
-        saveFinishedShard(parentShardId)
+        finishShardConsuming(event, parentShardId)
 
         val readyToConsumeChildShard = isReadyToConsumeChildShard(event)
         if (readyToConsumeChildShard) {
@@ -72,19 +68,25 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         }
     }
 
+
     private suspend fun onSplitReshardingEvent(event: SplitReshardingEvent) {
         val (parentShardId, childShardIds) = event
         logger.info { "Received split resharding event. Parent shard: $parentShardId, child shards: $childShardIds" }
-        persistChildShardsIterators(event)
 
-        sendLocalStopShardConsumerCmd(parentShardId)
-
-        saveFinishedShard(parentShardId)
-
-        val firstChildShardId = childShardIds.first()
+        finishShardConsuming(event, parentShardId)
 
         // We start the first child local
+        val firstChildShardId = childShardIds.first()
         sendLocalStartConsumerCmd(firstChildShardId)
+    }
+
+    private suspend fun finishShardConsuming(
+        event: ReshardingEvent,
+        parentShardId: ShardId
+    ) {
+        persistChildShardsIterators(event)
+        saveFinishedShard(parentShardId)
+        sendLocalStopShardConsumerCmd(parentShardId)
     }
 
     /**
@@ -96,6 +98,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         // So it's ensured that we not lose the finished flag of this shard and avoid death data.
         val finishedFlagExpiration = Duration.ofHours(streamDescription.retentionPeriodHours().toLong() + 1).toMillis()
         shardStatePersistence.saveFinishedShard(shardId, finishedFlagExpiration)
+        shardStatePersistence.deleteShardSequenceNumber(shardId)
     }
 
     private suspend fun sendLocalStartConsumerCmd(shardId: ShardId) {
@@ -154,7 +157,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
     private suspend fun persistChildShardsIterators(reshardingEvent: ReshardingEvent) {
         val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
 
-        val childShardIds: ShardIdList = when (reshardingEvent) {
+        val childShardIds = when (reshardingEvent) {
             is MergeReshardingEvent -> {
                 listOf(reshardingEvent.childShardId)
             }

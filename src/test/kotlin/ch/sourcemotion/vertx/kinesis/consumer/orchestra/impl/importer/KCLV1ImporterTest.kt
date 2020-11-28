@@ -16,35 +16,21 @@ import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.testcontainers.containers.localstack.LocalStackContainer
-import org.testcontainers.containers.localstack.LocalStackContainer.Service.DYNAMODB
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException
-import java.net.URI
 import java.util.*
 import kotlin.LazyThreadSafetyMode.NONE
 
-@Testcontainers
-internal class KCLV1ImporterTest : AbstractVertxTest() {
+internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest {
     companion object {
         private const val LEASE_TABLE_NAME = "kcl_lease"
 
         private const val IMPORTER_ADDR = "/testing/importer"
-
-        @JvmStatic
-        @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
-            .withServices(DYNAMODB)
-
     }
-
-    private val dynamoDbEndpoint: URI by lazy { localStackContainer.getEndpointOverride(DYNAMODB) }
 
     private val dynamoDbClient by lazy(NONE) {
         val builder = DynamoDbAsyncClient.builder().apply {
-            endpointOverride(dynamoDbEndpoint)
+            endpointOverride(getDynamoDbEndpointOverrideUri())
             credentialsProvider(Localstack.credentialsProvider)
         }
         VertxSdkClient.withVertx(builder, context).build()
@@ -90,7 +76,7 @@ internal class KCLV1ImporterTest : AbstractVertxTest() {
                     KCLV1ImporterOptions(
                         tableName,
                         IMPORTER_ADDR,
-                        dynamoDbEndpoint.toString()
+                        getDynamoDbEndpointOverride()
                     )
                 )
             )

@@ -163,8 +163,7 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
         withRetry(handler) {
             val key = redisKeyFactory.createShardFinishedKey(shardId.asShardIdTyped())
             sendAwait(
-                Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
-                    .arg(serviceOptions.shardProgressExpirationMillis.toString())
+                Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)
             )
             null
         }
@@ -180,8 +179,6 @@ class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStat
                 response.map { extractShardId(it.toString(Charsets.UTF_8)) }
             } ?: emptyList()
         }
-
-    var commandCounter = 0
 
     override fun flagMergeParentReshardingReady(
         parentShardId: String,

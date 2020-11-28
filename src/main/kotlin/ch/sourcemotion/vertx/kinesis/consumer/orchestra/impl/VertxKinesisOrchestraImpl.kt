@@ -11,6 +11,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1Importer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1ImporterCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import io.vertx.core.*
@@ -33,8 +34,7 @@ class VertxKinesisOrchestraImpl(
     private companion object : KLogging()
 
     private var running = false
-    private lateinit var orchestrationVerticleDeploymentId: String
-    private lateinit var shardPersistenceDeploymentId: String
+    private val subsystemDeploymentIds = ArrayList<String>()
 
     override fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>) {
         CoroutineScope(vertx.dispatcher()).launch {
@@ -59,18 +59,18 @@ class VertxKinesisOrchestraImpl(
         }
 
         val kclV1ImportOptions = options.kclV1ImportOptions
-        if(kclV1ImportOptions.isNotNull()) {
+        if (kclV1ImportOptions.isNotNull()) {
             deployKCL1Importer(kclV1ImportOptions)
         }
 
-        val check = JsonObject.mapFrom(options.asOrchestraVerticleOptions())
-        check.mapTo(OrchestrationVerticleOptions::class.java)
+        deployReshardingVerticle()
+        deployNotConsumedShardDetectorVerticle()
 
-        orchestrationVerticleDeploymentId =
+        val orchestrationVerticleDeploymentId =
             runCatching {
                 vertx.deployVerticleAwait(
-                    OrchestrationVerticle::class.java.name,
-                    DeploymentOptions().setConfig(JsonObject.mapFrom(options.asOrchestraVerticleOptions()))
+                    ConsumerControlVerticle::class.java.name,
+                    DeploymentOptions().setConfig(JsonObject.mapFrom(options.asConsumerControlOptions()))
                 )
             }.getOrElse {
                 throw VertxKinesisConsumerOrchestraException(
@@ -78,6 +78,7 @@ class VertxKinesisOrchestraImpl(
                     it
                 )
             }
+        subsystemDeploymentIds.add(orchestrationVerticleDeploymentId)
         scheduleLastDefenseClose()
         running = true
 
@@ -106,10 +107,27 @@ class VertxKinesisOrchestraImpl(
 
     override suspend fun closeAwait() {
         if (running) {
-            vertx.undeployAwait(orchestrationVerticleDeploymentId)
-            vertx.undeployAwait(shardPersistenceDeploymentId)
+            subsystemDeploymentIds.forEach { vertx.undeployAwait(it) }
             running = false
         }
+    }
+
+    private suspend fun deployNotConsumedShardDetectorVerticle() {
+        val options = NotConsumedShardDetectorVerticle.Options(
+            OrchestraClusterName(options.applicationName, options.streamName),
+            options.loadConfiguration.maxShardsCount,
+            options.loadConfiguration.notConsumedShardDetectionInterval,
+            options.shardIteratorStrategy
+        )
+        subsystemDeploymentIds.add(deployVerticle<NotConsumedShardDetectorVerticle>(options))
+    }
+
+    private suspend fun deployReshardingVerticle() {
+        val options = ReshardingVerticle.Options(
+            OrchestraClusterName(options.applicationName, options.streamName),
+            options.redisOptions
+        )
+        subsystemDeploymentIds.add(deployVerticle<ReshardingVerticle>(options))
     }
 
     private suspend fun deployDefaultShardStatePersistence() {
@@ -119,11 +137,13 @@ class VertxKinesisOrchestraImpl(
             options.redisOptions,
             options.shardProgressExpiration.toMillis()
         )
-        shardPersistenceDeploymentId = vertx.deployVerticleAwait(
-            RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
-                JsonObject.mapFrom(options)
-            )
-        )
+        subsystemDeploymentIds.add(deployVerticle<RedisShardStatePersistenceServiceVerticle>(options))
+    }
+
+    private suspend inline fun <reified V: Verticle> deployVerticle(options: Any) : String {
+        return vertx.deployVerticleAwait(
+            V::class.java.name,
+            deploymentOptionsOf(config = JsonObject.mapFrom(options)))
     }
 
     private suspend fun deployKCL1Importer(kclImportOptions: KCLV1ImportOptions) {
@@ -142,8 +162,10 @@ class VertxKinesisOrchestraImpl(
             deploymentOptionsOf(config = JsonObject.mapFrom(kclImportOptions))
         )
 
-        logger.info { "KCL V1 importer deployed. Will get queried if the shard iterator strategy is " +
-                "ShardIteratorStrategy.EXISTING_OR_LATEST and VKCO has no knowledge about an shard iterator." }
+        logger.info {
+            "KCL V1 importer deployed. Will get queried if the shard iterator strategy is " +
+                    "ShardIteratorStrategy.EXISTING_OR_LATEST and VKCO has no knowledge about an shard iterator."
+        }
     }
 
     private fun shareCredentials(credentialsProvider: AwsCredentialsProvider) {

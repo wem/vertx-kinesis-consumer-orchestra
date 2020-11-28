@@ -14,5 +14,5 @@ object Localstack {
     val region: Region = Region.EU_WEST_1
 }
 
-fun LocalStackContainer.getKinesisEndpointOverride() = "${getEndpointOverride(LocalStackContainer.Service.KINESIS)}"
+fun LocalStackContainer.getKinesisEndpointOverrideUri() = "${getEndpointOverride(LocalStackContainer.Service.KINESIS)}"
 fun LocalStackContainer.getDynamoDBEndpointOverride() = "${getEndpointOverride(LocalStackContainer.Service.DYNAMODB)}"

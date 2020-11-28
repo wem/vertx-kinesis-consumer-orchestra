@@ -24,6 +24,6 @@ object EventBusAddr {
 
     object Detection {
         private const val ADDR_BASE = "${EventBusAddr.ADDR_BASE}/detection"
-        const val shardsConsumedCountNotification = "$ADDR_BASE/notification/shards-consumed"
+        const val activeConsumerCountNotification = "$ADDR_BASE/notification/active-consumer-count"
     }
 }

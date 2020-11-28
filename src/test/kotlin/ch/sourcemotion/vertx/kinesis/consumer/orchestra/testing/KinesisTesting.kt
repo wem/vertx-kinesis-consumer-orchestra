@@ -2,6 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import io.kotest.matchers.collections.shouldHaveSize
@@ -22,7 +23,7 @@ fun Vertx.shareKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
 }
 
 suspend fun KinesisAsyncClient.createAndGetStreamDescriptionWhenActive(
-    shardCount: Int,
+    shardCount: Int = 1,
     streamName: String = TEST_STREAM_NAME
 ): StreamDescription {
     createStream {
@@ -32,16 +33,16 @@ suspend fun KinesisAsyncClient.createAndGetStreamDescriptionWhenActive(
 }
 
 suspend fun KinesisAsyncClient.putRecords(
-    recordBunching: RecordPutBunching,
+    recordBatching: RecordPutBatching,
     streamName: String = TEST_STREAM_NAME,
     recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
     partitionKeySupplier: (Int) -> String = { "partition-key_$it" }
 ) {
-    repeat(recordBunching.recordBunches) { bunchIdx ->
+    repeat(recordBatching.recordBatches) { bunchIdx ->
         // Partition key is per bundle
         val partitionKey = partitionKeySupplier(bunchIdx)
 
-        val putRequestRecords = List(recordBunching.recordsPerBunch) { recordIdx ->
+        val putRequestRecords = List(recordBatching.recordsPerBatch) { recordIdx ->
             PutRecordsRequestEntry.builder().partitionKey(partitionKey).data(recordDataSupplier(recordIdx))
                 .build()
         }
@@ -53,19 +54,19 @@ suspend fun KinesisAsyncClient.putRecords(
 }
 
 suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
-    recordBunching: RecordPutBunching,
+    recordBatching: RecordPutBatching,
     recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
     streamName: String = TEST_STREAM_NAME,
     predefinedShards: ShardList? = null
 ) {
     // Count of record bundles must equal to the count of shards
     val shards = predefinedShards ?: streamDescriptionWhenActiveAwait(streamName).shards()
-    shards.shouldHaveSize(recordBunching.recordBunches)
+    shards.shouldHaveSize(recordBatching.recordBatches)
 
-    repeat(recordBunching.recordBunches) { bundleIdx ->
+    repeat(recordBatching.recordBatches) { bundleIdx ->
         val hashKey = shards[bundleIdx].hashKeyRange().startingHashKey()
 
-        val putRequestRecords = List(recordBunching.recordsPerBunch) { recordIdx ->
+        val putRequestRecords = List(recordBatching.recordsPerBatch) { recordIdx ->
             PutRecordsRequestEntry.builder().explicitHashKey(hashKey).partitionKey("partition-key")
                 .data(recordDataSupplier(recordIdx))
                 .build()
@@ -96,6 +97,8 @@ suspend fun KinesisAsyncClient.mergeShards(parentShard: Shard, adjacentShard: Sh
         it.adjacentShardToMerge(adjacentShard.shardId())
     }.await()
 }
+
+fun StreamDescription.shardIds() = shards().map { it.shardIdTyped() }
 
 suspend fun KinesisAsyncClient.mergeShards(parentShards: List<Shard>) {
     if (parentShards.size != 2) {

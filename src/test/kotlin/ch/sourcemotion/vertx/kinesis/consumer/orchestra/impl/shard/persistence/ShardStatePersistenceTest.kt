@@ -20,8 +20,9 @@ import kotlinx.coroutines.launch
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import kotlin.LazyThreadSafetyMode.NONE
 
-internal class ShardStatePersistenceTest : AbstractRedisTest() {
+internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
 
     companion object {
         private const val APPLICATION_NAME = "test-application"
@@ -32,12 +33,14 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
         private val shardId = ShardIdGenerator.generateShardId()
     }
 
-    private val sut by lazy { ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx) }
+    private val sut by lazy(NONE) { ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx) }
 
     private var deploymentId: String? = null
 
     @BeforeEach
     internal fun deployShardStatePersistenceService(testContext: VertxTestContext) = asyncTest(testContext) {
+        deployShardStatePersistenceService(DEFAULT_TEST_EXPIRATION_MILLIS)
+
         val options = RedisShardStatePersistenceServiceVerticleOptions(
             APPLICATION_NAME,
             STREAM_NAME,
@@ -110,8 +113,6 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
         shardIds.forEach { sut.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION_MILLIS) }
 
         sut.getFinishedShardIds().shouldContainExactlyInAnyOrder(shardIds)
-        val foundShardIds = sut.getFinishedShardIds()
-        foundShardIds.shouldContainExactlyInAnyOrder(shardIds)
     }
 
     @Test

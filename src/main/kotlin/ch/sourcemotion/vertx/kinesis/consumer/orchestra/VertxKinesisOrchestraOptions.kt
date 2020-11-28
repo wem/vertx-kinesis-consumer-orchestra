@@ -1,5 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
@@ -89,7 +90,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Please read also the Javadoc on [ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadStrategy] too
      * for more information.
      */
-    var loadConfiguration: LoadConfiguration = LoadConfiguration.createExactConfig(1),
+    var loadConfiguration: LoadConfiguration = LoadConfiguration.createConsumeExact(1),
 
     /**
      * How the orchestra should behave on failures during record processing.
@@ -116,12 +117,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     ),
 
     /**
-     * It's possible to register a event bus consumer on this address. He will get notified when the orchestra
-     * did redeploy the consumer(s) because of a rehsarding.
-     */
-    var reshardingNotificationAddress: String = "/kinesis-consumer-orchester/resharding",
-
-    /**
      * Class of record consumer verticle. Each consumer verticle will process one shard. This means
      * one instance per shard will get deployed and consumes records of the corresponding shard.
      *
@@ -132,13 +127,13 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     var consumerVerticleClass: String,
 
     /**
-     * Additional configuration, passed as options / configuration to the deployment of [recordsPerBatchLimit].
+     * Additional configuration, passed as options to the deployment of the provided [consumerVerticleClass].
      *
      * IMPORTANT:
      * Be aware that this options are a combination with the internal configuration, so if you use Jackson
      * please add @[JsonIgnoreProperties] with [JsonIgnoreProperties.ignoreUnknown] true configured.
      */
-    var consumerVerticleConfig: JsonObject = JsonObject(),
+    var consumerVerticleOptions: JsonObject = JsonObject(),
 
     /**
      * Options to import last proceeded Kinesis sequence number per shard, according to KCL v1.
@@ -154,6 +149,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
+        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
 
         // https://docs.aws.amazon.com/streams/latest/dev/service-sizes-and-limits.html
         const val DEFAULT_RECORDS_PER_BATCH_LIMIT = 10000
@@ -192,31 +188,37 @@ enum class ShardIteratorStrategy {
     FORCE_LATEST
 }
 
-/**
- * Configuration how many shards and therefore consumer will be deployed per orchestra instance.
- */
-enum class LoadStrategy {
+data class LoadConfiguration constructor(
     /**
-     * Potential over-committing. All free shards (they are not already in progress by another orchestra instance) will get processed.
-     *
-     * IMPORTANT:
-     * This configuration makes only sense if there is only one orchestra instance (per application) configured on a stream.
-     * As the first instance will take all shards.
-     */
-    DO_ALL_SHARDS,
-
-    /**
-     * The exactly count of shard will be processed, unaware of available event loop threads.
+     * The exactly max count of shard will be processed, unaware of available event loop threads.
      * This configuration encompass the scenario where we would fan-out on consumer level, where Kinesis is not
-     * the limiting factor whats the case most times.
+     * the limiting factor.
      */
-    EXACT
-}
+    val maxShardsCount: Int,
 
-data class LoadConfiguration(val strategy: LoadStrategy, val exactCount: Int? = null) {
+    /**
+     * Interval to execute detection of not consumed shards. Common situations of not consumed shards are e.g. on
+     * VKCO startup or after a split resharding.
+     */
+    val notConsumedShardDetectionInterval: Long
+) {
     companion object {
-        fun createDoAllShardsConfig() = LoadConfiguration(LoadStrategy.DO_ALL_SHARDS)
-        fun createExactConfig(exactCount: Int) = LoadConfiguration(LoadStrategy.EXACT, exactCount)
+        @JvmOverloads
+        @JvmStatic
+        fun createConsumeAllShards(notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS) =
+            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval)
+
+        @JvmStatic
+        fun createConsumeExact(
+            exactCount: Int,
+            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
+        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval)
+    }
+
+    init {
+        if (maxShardsCount < 1) {
+            throw VertxKinesisConsumerOrchestraException("Please configure a load configuration with at least 1 maxShardsCount")
+        }
     }
 }
 

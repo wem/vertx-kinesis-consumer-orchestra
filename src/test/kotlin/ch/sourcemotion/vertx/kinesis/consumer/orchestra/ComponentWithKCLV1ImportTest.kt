@@ -1,11 +1,10 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.getShardIteratorAwait
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.LocalstackContainerTest.Companion.localStackContainer
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -17,28 +16,18 @@ import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.testcontainers.containers.localstack.LocalStackContainer
-import org.testcontainers.containers.localstack.LocalStackContainer.Service
-import org.testcontainers.junit.jupiter.Container
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
-import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 import java.net.URI
 
-internal class ComponentWithImportTest : AbstractRedisTest() {
+internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
     companion object {
         const val RECORD_FAN_OUT_ADDR = "/kinesis/consumer/orchestra/fan-out"
-        const val RECORD_COUNT = 100
 
         private const val LEASE_TABLE_NAME = "kcl_lease"
         private const val RECORD_COUNT_AFTER_KCLV1_IMPORT = 100
-
-        @JvmStatic
-        @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
-            .withServices(Service.DYNAMODB, Service.KINESIS)
     }
 
     private val dynamoDbClient by lazy {
@@ -49,17 +38,10 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
         VertxSdkClient.withVertx(builder, context).build()
     }
 
-    private val kinesisClient: KinesisAsyncClient by lazy {
-        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(context)
-    }
-
     private var orchestra: VertxKinesisOrchestra? = null
 
     @BeforeEach
     internal fun setUpComponent(testContext: VertxTestContext) = asyncTest(testContext) {
-        vertx.shareCredentialsProvider()
-        vertx.shareKinesisAsyncClientFactory(localStackContainer.getKinesisEndpointOverride())
         dynamoDbClient.forceCreateLeaseTable(LEASE_TABLE_NAME)
     }
 
@@ -76,7 +58,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
             val shardIterator = kinesisClient.getShardIteratorAwait(TEST_STREAM_NAME, ShardIteratorType.LATEST, shardId)
 
             // Put records onto the stream, so we can simulate KCLv1 processing before VKCO starts
-            kinesisClient.putRecords(1 bunchesOf 1)
+            kinesisClient.putRecords(1 batchesOf 1)
 
             val receivedRecordSequenceNumbers = HashSet<String>()
 
@@ -97,15 +79,14 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
                     credentialsProviderSupplier = { Localstack.credentialsProvider },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
                     redisOptions = redisHeimdallOptions,
-                    consumerVerticleConfig = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
-                    kinesisEndpoint = localStackContainer.getKinesisEndpointOverride(),
+                    consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
+                    kinesisEndpoint = localStackContainer.getKinesisEndpointOverrideUri(),
                     kclV1ImportOptions = KCLV1ImportOptions(
                         leaseTableName = LEASE_TABLE_NAME,
                         dynamoDbEndpoint = localStackContainer.getDynamoDBEndpointOverride()
                     )
                 )
             ).startAwait()
-
 
             eventBus.consumer<JsonArray>(RECORD_FAN_OUT_ADDR) { msg ->
                 msg.body().forEach { seqNbr ->
@@ -115,7 +96,7 @@ internal class ComponentWithImportTest : AbstractRedisTest() {
                 }
             }
 
-            kinesisClient.putRecords(1 bunchesOf RECORD_COUNT_AFTER_KCLV1_IMPORT)
+            kinesisClient.putRecords(1 batchesOf RECORD_COUNT_AFTER_KCLV1_IMPORT)
         }
 }
 

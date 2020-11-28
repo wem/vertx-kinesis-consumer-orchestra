@@ -2,46 +2,28 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.future.await
-import mu.KLogging
 import org.junit.jupiter.api.BeforeEach
-import org.testcontainers.containers.localstack.LocalStackContainer
-import org.testcontainers.junit.jupiter.Container
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import kotlin.LazyThreadSafetyMode.NONE
 
 
 internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Boolean = true) :
-    AbstractRedisTest(deployShardPersistence) {
+    AbstractRedisTest(deployShardPersistence), LocalstackContainerTest {
 
-    companion object : KLogging() {
-        @JvmStatic
-        @Container
-        var localStackContainer: LocalStackContainer = LocalStackContainer(Localstack.dockerImage)
-            .withServices(LocalStackContainer.Service.KINESIS)
-    }
-
-    protected val kinesisClient: KinesisAsyncClient by lazy {
+    protected val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
             .createKinesisAsyncClient(context)
-    }
-
-    protected val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy {
-        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
     }
 
     @BeforeEach
     fun credentialsProviderKinesisClientFactoryAndShardPersistence(testContext: VertxTestContext) =
         asyncTest(testContext) {
             vertx.shareCredentialsProvider()
-            vertx.shareKinesisAsyncClientFactory(localStackContainer.getKinesisEndpointOverride())
+            vertx.shareKinesisAsyncClientFactory(getKinesisEndpointOverride())
         }
 
-    /**
-     * Cleanup Kinesis streams before each test function as the Kinesis instance is per the class.
-     */
     @BeforeEach
     fun cleanupKinesisStreams(testContext: VertxTestContext) = asyncTest(testContext) {
         val streamNames = kinesisClient.listStreams().await().streamNames()

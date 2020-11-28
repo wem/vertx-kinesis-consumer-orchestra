@@ -262,7 +262,7 @@ internal class NotConsumedShardDetectorVerticleTest : AbstractKinesisAndRedisTes
     }
 
     private suspend fun sendShardsConsumedCountNotification(consumedShards: Int) {
-        eventBus.requestAwait<Unit>(EventBusAddr.detection.shardsConsumedCountNotification, consumedShards)
+        eventBus.requestAwait<Unit>(EventBusAddr.detection.activeConsumerCountNotification, consumedShards)
     }
 
     private suspend fun deployNotConsumedShardDetectorVerticle(

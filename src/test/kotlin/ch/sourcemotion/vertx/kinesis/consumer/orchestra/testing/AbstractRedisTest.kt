@@ -4,7 +4,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.KGenericContainer.Companion.REDIS_PORT
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.extension.SingletonContainer
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.extension.SingletonContainerExtension
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import eu.rekawek.toxiproxy.model.ToxicDirection
@@ -18,15 +22,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import mu.KLogging
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.extension.ExtendWith
 import org.testcontainers.containers.Network
 import org.testcontainers.containers.ToxiproxyContainer
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import java.util.*
+import kotlin.LazyThreadSafetyMode.NONE
 
-@Testcontainers
+@ExtendWith(SingletonContainerExtension::class)
 abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = true) : AbstractVertxTest() {
     companion object : KLogging() {
         private val toxiProxyDockerImageName = DockerImageName.parse("shopify/toxiproxy:2.1.4")
@@ -35,36 +40,47 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
         private val network = Network.SHARED
 
         @JvmStatic
-        @Container
+        @get:SingletonContainer
         val redisContainer = KGenericContainer.createRedisContainer(network)
+
+        @JvmStatic
+        @get:SingletonContainer
+        val toxiproxy = ToxiproxyContainer(toxiProxyDockerImageName).withNetwork(network)
+
+        val redisProxy by lazy { toxiproxy.getProxy(redisContainer, REDIS_PORT) }
     }
-
-    @Container
-    val toxiproxy = ToxiproxyContainer(toxiProxyDockerImageName).withNetwork(network)
-
-    val redisProxy by lazy { toxiproxy.getProxy(redisContainer, REDIS_PORT) }
 
     private fun getRedisServerHost() = redisProxy.containerIpAddress
     private fun getRedisServerPort() = redisProxy.proxyPort
-
 
     protected val redisHeimdallOptions: RedisHeimdallOptions by lazy {
         RedisHeimdallOptions(RedisOptions().setConnectionString("redis://${getRedisServerHost()}:${getRedisServerPort()}"))
     }
 
-    protected val redisClient: Redis by lazy { RedisHeimdall.create(vertx, redisHeimdallOptions) }
+    protected val redisClient: Redis by lazy(NONE) { RedisHeimdall.create(vertx, redisHeimdallOptions) }
+
+    protected val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy(NONE) {
+        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
+    }
 
     @BeforeEach
-    internal fun cleanRedisBeforeTest(testContext: VertxTestContext) = asyncTest(testContext) {
-        removeRedisToxies()
-        flushAllOnRedisServer()
+    internal fun deployShardStatePersistence(testContext: VertxTestContext) = asyncTest(testContext) {
         if (deployShardPersistence) {
             deployShardStatePersistenceService()
         }
     }
 
-    private suspend fun flushAllOnRedisServer() {
-        val flushResponse = redisClient.sendAwait(Request.cmd(Command.FLUSHALL))
+    @AfterEach
+    internal fun cleanUpRedis(testContext: VertxTestContext) = testContext.async {
+        removeRedisToxies()
+        flushAllOnRedis()
+    }
+
+    private suspend fun flushAllOnRedis() {
+        val tempClient = RedisHeimdall.create(vertx, redisHeimdallOptions)
+        val flushResponseResult = runCatching { tempClient.sendAwait(Request.cmd(Command.FLUSHALL)) }
+        tempClient.close()
+        val flushResponse = flushResponseResult.getOrThrow()
         if (flushResponse.isNotNull() && flushResponse.toString() == "OK") {
             logger.info { "Redis server all flushed" }
         } else {
@@ -103,12 +119,14 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
         delay(2)
     }
 
-    private suspend fun deployShardStatePersistenceService() {
+    protected suspend fun deployShardStatePersistenceService(
+        shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
+    ) {
         val options = RedisShardStatePersistenceServiceVerticleOptions(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
             redisHeimdallOptions,
-            VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
+            shardProgressExpirationMillis
         )
         deployTestVerticle<RedisShardStatePersistenceServiceVerticle>(options)
     }

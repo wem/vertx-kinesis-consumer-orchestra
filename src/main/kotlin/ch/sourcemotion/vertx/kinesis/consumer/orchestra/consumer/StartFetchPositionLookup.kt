@@ -24,7 +24,7 @@ internal class StartFetchPositionLookup(
         return when (options.shardIteratorStrategy) {
             ShardIteratorStrategy.FORCE_LATEST -> {
                 logger.debug { "Force ${ShardIteratorType.LATEST.name} shard iterator on $consumerInfo" }
-                FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
+                FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.clusterName.streamName, shardId), null)
             }
             ShardIteratorStrategy.EXISTING_OR_LATEST -> {
                 val existingSequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
@@ -46,7 +46,7 @@ internal class StartFetchPositionLookup(
                         )
                     } else {
                         logger.debug { "Use ${ShardIteratorType.LATEST.name} shard iterator for $consumerInfo because no existing position found" }
-                        FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.streamName, shardId), null)
+                        FetchPosition(kinesisClient.getLatestShardIteratorAwait(options.clusterName.streamName, shardId), null)
                     }
                 }
             }
@@ -55,7 +55,7 @@ internal class StartFetchPositionLookup(
 
     private suspend fun getShardIteratorBySequenceNumber(existingSequenceNumber: SequenceNumber): ShardIterator {
         return kinesisClient.getShardIteratorBySequenceNumberAwait(
-            options.streamName,
+            options.clusterName.streamName,
             shardId,
             existingSequenceNumber
         )
