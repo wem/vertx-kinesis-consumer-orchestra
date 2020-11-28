@@ -5,12 +5,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asSequenceNumberAt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
+import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
-import io.kotest.matchers.ints.shouldBeBetween
-import io.kotest.matchers.ints.shouldBeGreaterThan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
@@ -19,10 +18,9 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deployVerticleAwait
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import kotlin.coroutines.resume
 
 internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
@@ -35,22 +33,29 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
         private val shardId = ShardIdGenerator.generateShardId()
     }
 
+    private val sut by lazy { ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx) }
+
+    private var deploymentId: String? = null
+
     @BeforeEach
     internal fun deployShardStatePersistenceService(testContext: VertxTestContext) = asyncTest(testContext) {
         val options = RedisShardStatePersistenceServiceVerticleOptions(
             APPLICATION_NAME,
             STREAM_NAME,
-            redisOptions,
+            redisOptions.apply { maxPoolSize = 8 },
             DEFAULT_TEST_EXPIRATION_MILLIS
         )
-        vertx.deployVerticleAwait(
+        deploymentId = vertx.deployVerticleAwait(
             RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
                 JsonObject.mapFrom(options)
             )
         )
     }
 
-    private val sut by lazy { ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx) }
+    @AfterEach
+    internal fun undeployShardPersistenceVerticle(testContext: VertxTestContext) {
+        deploymentId?.let { vertx.undeploy(it, testContext.completing()) }
+    }
 
     @Test
     internal fun flagShardInProgress(testContext: VertxTestContext) = asyncTest(testContext) {
@@ -77,11 +82,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
     @Test
     internal fun start_shard_progress_keepalive(testContext: VertxTestContext) = asyncTest(testContext) {
         sut.startShardProgressAndKeepAlive(shardId)
-        suspendCancellableCoroutine<Unit> { cont ->
-            vertx.setTimer(DEFAULT_TEST_EXPIRATION_MILLIS * 3) {
-                cont.resume(Unit)
-            }
-        }
+        delay(DEFAULT_TEST_EXPIRATION_MILLIS * 3)
         sut.getShardIdsInProgress().shouldContainExactly(shardId)
         sut.flagShardNoMoreInProgress(shardId).shouldBeTrue()
         delay(DEFAULT_TEST_EXPIRATION_MILLIS * 3)
@@ -125,12 +126,17 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
 
     @Test
-    internal fun merge_resharding_event_count(testContext: VertxTestContext) = asyncTest(testContext) {
-        val childShardId = ShardIdGenerator.generateShardId()
-        sut.getMergeReshardingEventCount(childShardId).shouldBe(1)
-        sut.getMergeReshardingEventCount(childShardId).shouldBe(2)
-        sut.deleteMergeReshardingEventCount(childShardId)
-        sut.getMergeReshardingEventCount(childShardId).shouldBe(1)
+    internal fun flag_merge_parents_ready_to_reshard(testContext: VertxTestContext) = asyncTest(testContext) {
+        val parentShardId = ShardIdGenerator.generateShardId()
+        val adjacentParentShardId = ShardIdGenerator.generateShardId(1)
+        val childShardId = ShardIdGenerator.generateShardId(2)
+
+        sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
+        sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
+        sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
+        sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
+        sut.deleteMergeParentsReshardingReadyFlag(childShardId)
+        sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeFalse()
     }
 
     /**
@@ -139,11 +145,15 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
     @Test
     internal fun concurrent_merge_resharding_event_count(testContext: VertxTestContext) =
         asyncTest(testContext, 100) { checkpoint ->
-            val childShardId = ShardIdGenerator.generateShardId()
             val coroutineCount = 100
+            var shardIdCounter = 0
             repeat(coroutineCount) {
                 defaultTestScope.launch {
-                    sut.getMergeReshardingEventCount(childShardId).shouldBeBetween(1, coroutineCount)
+                    val parentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    val adjacentParentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    val childShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
+                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
                     checkpoint.flag()
                 }
             }
@@ -186,9 +196,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             preventDataToRedisPassingAfter(2)
 
-            vertx.setTimer(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2) {
-                removeRedisToxies()
-            }
+            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -202,9 +210,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             preventDataFromRedisPassingAfter(2)
 
-            vertx.setTimer(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2) {
-                removeRedisToxies()
-            }
+            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 2)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -218,9 +224,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
 
             closeConnectionToRedis()
 
-            vertx.setTimer(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3) {
-                removeRedisToxies()
-            }
+            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3)
 
             sut.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
             sut.getConsumerShardSequenceNumber(shardId).shouldBe(sequenceNumber)
@@ -229,20 +233,23 @@ internal class ShardStatePersistenceTest : AbstractRedisTest() {
     @Test
     internal fun concurrent_merge_resharding_event_count_closed_connection(testContext: VertxTestContext) =
         asyncTest(testContext, 100) { checkpoint ->
-            val childShardId = ShardIdGenerator.generateShardId()
+            var shardIdCounter = 0
             val jobCount = 100
             repeat(jobCount) { jobNumber ->
                 defaultTestScope.launch {
-                    sut.getMergeReshardingEventCount(childShardId).shouldBeGreaterThan(0)
+                    val parentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    val adjacentParentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    val childShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
+                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
+                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
                     checkpoint.flag()
                 }
-                if (jobNumber == 50) {
+
+                if (jobNumber == jobCount / 2) {
                     closeConnectionToRedis()
                 }
             }
 
-            vertx.setTimer(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3) {
-                removeRedisToxies()
-            }
+            removeRedisToxiesAfter(VertxKinesisOrchestraOptions.DEFAULT_REDIS_RECONNECTION_INTERVAL_MILLIS * 3)
         }
 }

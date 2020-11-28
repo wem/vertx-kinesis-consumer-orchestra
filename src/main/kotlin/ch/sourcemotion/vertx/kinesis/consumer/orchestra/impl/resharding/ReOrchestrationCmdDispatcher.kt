@@ -116,9 +116,22 @@ abstract class ReOrchestrationCmdDispatcher(
      * @return If the ready to get re-orchestrated or wait for further event.
      */
     private suspend fun isReOrchestrationReadyAfterMerge(mergeReshardingEvent: MergeReshardingEvent): Boolean {
-        return (shardStatePersistenceService.getMergeReshardingEventCount(mergeReshardingEvent.childShardId) == 2).also { canReOrchestrate ->
+        return (shardStatePersistenceService.flagMergeParentReadyToReshard(
+            mergeReshardingEvent.finishedParentShardId,
+            mergeReshardingEvent.childShardId
+        )).also { canReOrchestrate ->
             if (canReOrchestrate) {
-                shardStatePersistenceService.deleteMergeReshardingEventCount(mergeReshardingEvent.childShardId)
+                val garbageWarnMsg =
+                    "There maybe some data garbage on Redis. Looks like not all merge parent ready flags are removed."
+                shardStatePersistenceService.runCatching {
+                    deleteMergeParentsReshardingReadyFlag(mergeReshardingEvent.childShardId)
+                }.onSuccess {
+                    if (it != 2) {
+                        logger.warn { garbageWarnMsg }
+                    }
+                }.onFailure {
+                    logger.warn(it) { garbageWarnMsg }
+                }
             }
         }
     }
@@ -153,12 +166,12 @@ abstract class ReOrchestrationCmdDispatcher(
         reshardingChildShardIds.forEach { childShardId ->
             val startingSequenceNumber =
                 streamDescription.shards().first { it.shardIdTyped() == childShardId }.sequenceNumberRange()
-                    .atSequenceNumberTyped()
+                    .startSequenceNumberTyped()
             shardStatePersistenceService.saveConsumerShardSequenceNumber(childShardId, startingSequenceNumber)
         }
     }
 
-    private fun SequenceNumberRange.atSequenceNumberTyped() =
+    private fun SequenceNumberRange.startSequenceNumberTyped() =
         SequenceNumber(startingSequenceNumber(), SequenceNumberIteratorPosition.AT)
 }
 

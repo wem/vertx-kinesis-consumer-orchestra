@@ -248,7 +248,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
         val reshardingInfo = ReshardingEventFactory(
             streamDesc,
-            options.streamName,
             shardId
         ).createReshardingEvent()
 
