@@ -64,7 +64,6 @@ dependencies {
     testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${libVersion("mockito-kotlin")}")
     testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${libVersion("log4j")}")
     testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
-    testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:localstack")
     testImplementation("org.testcontainers:toxiproxy")
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}") {
