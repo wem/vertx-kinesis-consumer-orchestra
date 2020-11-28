@@ -14,4 +14,7 @@ object ShardIdGenerator {
                 shardNumber + shardNumberOffset
             )
         }.toList()
+
+    fun reshardingIdConstellation() = Triple(generateShardId(0), generateShardId(1), generateShardId(2))
+
 }
