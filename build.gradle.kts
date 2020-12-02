@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.10"
-    kotlin("kapt") version "1.4.10"
+    kotlin("jvm") version "1.4.20"
+    kotlin("kapt") version "1.4.20"
     id("io.spring.dependency-management") version "1.0.9.RELEASE"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
@@ -46,7 +46,7 @@ dependencies {
     api(awsSdk("dynamodb"))
     api(awsSdk("sts"))
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
-    implementation("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
+    api("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
 
     api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}") {
         exclude(group = "software.amazon.awssdk", module = "*")
