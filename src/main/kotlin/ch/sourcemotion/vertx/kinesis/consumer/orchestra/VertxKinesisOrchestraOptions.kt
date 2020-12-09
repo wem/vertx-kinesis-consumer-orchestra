@@ -1,6 +1,16 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_ENABLED
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_DECREASE_ADJUSTMENT_THRESHOLD
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_INCREASE_ADJUSTMENT_THRESHOLD
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
@@ -29,17 +39,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * AWS region on which the orchestra will run.
      */
     var region: String = DEFAULT_REGION.id(),
-
-    /**
-     * Interval Kinesis should be queried for new records. If the processing time of the previous received bunch of records did
-     * take longer than this interval, then Kinesis will get queried immediately when this work get done.
-     */
-    var kinesisFetchInterval: Duration = Duration.ofMillis(DEFAULT_KINESIS_FETCH_INTERVAL_MILLIS),
-
-    /**
-     * The max. amount of records per query against Kinesis.
-     */
-    var recordsPerBatchLimit: Int = DEFAULT_RECORDS_PER_BATCH_LIMIT,
 
     /**
      * Expiration of the progress flag during shard processing. If the flag is not updated within this expiration period
@@ -142,17 +141,34 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * The importer will read the most recent sequence number of a lease for a shard, so the VKCS will continue to fetch
      * from this sequence number.
      */
-    var kclV1ImportOptions: KCLV1ImportOptions? = null
+    var kclV1ImportOptions: KCLV1ImportOptions? = null,
+
+    /**
+     * Fetcher options. Default a dynamic fetcher is enabled, which will adjust the get records request limit according
+     * to the count of records per response of previous requests.
+     */
+    val fetcherOptions: FetcherOptions = FetcherOptions()
 ) {
     companion object {
-        const val DEFAULT_KINESIS_FETCH_INTERVAL_MILLIS = 1000L
+        /**
+         * Kinesis allows 5 TX per second.
+         */
+        const val DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS = 250L
+        const val DEFAULT_RECORDS_PREFETCH_LIMIT = 10000
+        const val DEFAULT_GET_RECORDS_LIMIT = 1000
+        const val DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_ENABLED = true
+        const val DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP = 100
+        val DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE = DynamicLimitAdjustmentPercentileOrAverage.AVERAGE
+        const val DEFAULT_GET_RECORDS_LIMIT_INCREASE_ADJUSTMENT_THRESHOLD = 300
+        const val DEFAULT_GET_RECORDS_LIMIT_DECREASE_ADJUSTMENT_THRESHOLD = 700
+        const val DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION = 10
+        const val DEFAULT_MINIMAL_GET_RECORDS_LIMIT = 300
+
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
 
-        // https://docs.aws.amazon.com/streams/latest/dev/service-sizes-and-limits.html
-        const val DEFAULT_RECORDS_PER_BATCH_LIMIT = 10000
         val DEFAULT_REGION: Region = Region.EU_WEST_1
     }
 }
@@ -236,4 +252,100 @@ data class KCLV1ImportOptions @JvmOverloads constructor(
     companion object {
         const val DEFAULT_IMPORT_ADDRESS = "/kinesis-consumer-orchestra/kcl-import"
     }
+}
+
+data class FetcherOptions(
+
+    /**
+     * Interval to fetch records from Kinesis. Default is -1 which means, getRecords request will get executed as fast / often
+     * as possible.
+     */
+    val recordsFetchIntervalMillis: Long = DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS,
+
+    /**
+     * The fetcher will pre-fetch records and hold them in a stream. So if the fetcher is "faster" than the consumer, the
+     * consumer will never have to wait for next records to proceed. But to avoid the fetcher will went too far
+     * into the "future" he will get suspended if this limit is reached / exceeded.
+     *
+     * The consumer will get all pre-fetched at once from the stream.
+     * So the next time after the consumer will read records from the stream, the fetcher will resume again.
+     */
+    val recordsPreFetchLimit: Int = DEFAULT_RECORDS_PREFETCH_LIMIT,
+
+    /**
+     * Applied to [software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest.limit]
+     */
+    val getRecordsLimit: Int = DEFAULT_GET_RECORDS_LIMIT,
+    val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment()
+) {
+    init {
+        require(recordsFetchIntervalMillis > 0) { "recordsFetchInterval must be a positive duration. But is \"$recordsFetchIntervalMillis\"" }
+        require(recordsPreFetchLimit.isPositive()) { "recordsPreFetchLimit must be a positive integer. But is \"$recordsPreFetchLimit\"" }
+        require(getRecordsLimit.isPositive()) { "getRecordsLimit must be a positive integer. But is \"$getRecordsLimit\"" }
+    }
+}
+
+data class DynamicLimitAdjustment(
+
+    /**
+     * If true the dynamic get record request limit is enabled.
+     */
+    val enabled: Boolean = DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_ENABLED,
+
+    /**
+     * After this count of [software.amazon.awssdk.services.kinesis.KinesisAsyncClient.getRecords] calls, the limit adjustment
+     * will be activated.
+     */
+    val getRecordResultsToStartAdjustment: Int = DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION,
+
+    /**
+     * If this dynamic limit adjustment detects a too low limit, the limit will increased by this value for the subsequent
+     * [software.amazon.awssdk.services.kinesis.KinesisAsyncClient.getRecords] calls.
+     */
+    val limitIncreaseStep: Int = DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP,
+
+    /**
+     * If this dynamic limit adjustment detects a too high limit, the limit will decreased by this value for the subsequent
+     * [software.amazon.awssdk.services.kinesis.KinesisAsyncClient.getRecords] calls.
+     */
+    val limitDecreaseStep: Int = DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP,
+
+    /**
+     * The method / calculation to determine the current consumed amount of records according to [getRecordResultsToStartAdjustment]
+     * The result of this calculation is tightly coupled to the thresholds [limitIncreaseThreshold] and [limitDecreaseThreshold].
+     */
+    val limitAdjustmentPercentileOrAverage: DynamicLimitAdjustmentPercentileOrAverage = DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE,
+
+    /**
+     * Threshold to detect a too low limit of get record requests according to [limitAdjustmentPercentileOrAverage].
+     * If this threshold did exceed, the next get record requests limit will increased by [limitIncreaseStep].
+     */
+    val limitIncreaseThreshold: Int = DEFAULT_GET_RECORDS_LIMIT_INCREASE_ADJUSTMENT_THRESHOLD,
+
+    /**
+     * Threshold to detect a too high limit of get record requests according to [limitAdjustmentPercentileOrAverage].
+     * If this threshold did exceed, the next get record requests limit will decreased by [limitIncreaseStep].
+     */
+    val limitDecreaseThreshold: Int = DEFAULT_GET_RECORDS_LIMIT_DECREASE_ADJUSTMENT_THRESHOLD,
+
+    /**
+     * Minimum of limit a get records request will get parametrized with. Unaware if the [limitDecreaseThreshold] is exceeded.
+     */
+    val minimalLimit: Int = DEFAULT_MINIMAL_GET_RECORDS_LIMIT,
+) {
+    init {
+        require(getRecordResultsToStartAdjustment.isPositive()) { "getRecordResultsToStartAdjustment must be a positive integer. But is \"$getRecordResultsToStartAdjustment\"" }
+        require(limitIncreaseStep.isPositive()) { "limitIncreaseStep must be a positive integer. But is \"$limitIncreaseStep\"" }
+        require(limitDecreaseStep.isPositive()) { "limitIncreaseStep must be a positive integer. But is \"$limitDecreaseStep\"" }
+        require(limitIncreaseThreshold.isPositive()) { "limitIncreaseThreshold must be a positive integer. But is \"$limitIncreaseThreshold\"" }
+        require(limitDecreaseThreshold.isPositive()) { "limitDecreaseThreshold must be a positive integer. But is \"$limitDecreaseThreshold\"" }
+        require(minimalLimit.isPositive()) { "minimalLimit must be a positive integer. But is \"$minimalLimit\"" }
+    }
+
+}
+
+private fun Int.isPositive() = this > 0
+
+enum class DynamicLimitAdjustmentPercentileOrAverage(val quantile: Double) {
+    P50(0.5), P80(0.8), P90(0.9), AVERAGE(0.0)
 }

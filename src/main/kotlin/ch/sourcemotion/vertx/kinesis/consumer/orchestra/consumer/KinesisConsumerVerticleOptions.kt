@@ -1,6 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
@@ -17,8 +18,7 @@ internal data class KinesisConsumerVerticleOptions(
     val clusterName: OrchestraClusterName,
     val shardIteratorStrategy: ShardIteratorStrategy,
     val errorHandling: ErrorHandling,
-    val kinesisFetchIntervalMillis: Long,
-    val recordsPerBatchLimit: Int,
     val sequenceNbrImportAddress: String? = null,
-    val shardProgressExpirationMillis : Long
+    val shardProgressExpirationMillis : Long,
+    val fetcherOptions: FetcherOptions
 )

@@ -1,6 +1,9 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.DynamicRecordFetcher
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.adjacentParentShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
@@ -13,10 +16,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import kotlinx.coroutines.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
-import software.amazon.awssdk.services.kinesis.model.ChildShard
 import software.amazon.awssdk.services.kinesis.model.Record
 import kotlin.LazyThreadSafetyMode.NONE
 import kotlin.coroutines.resume
@@ -33,17 +37,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private val options: KinesisConsumerVerticleOptions by lazy(NONE) {
         config.mapTo(KinesisConsumerVerticleOptions::class.java)
-    }
-
-    private val recordFetcher: RecordFetcher by lazy(NONE) {
-        RecordFetcher(
-            kinesisClient,
-            options.recordsPerBatchLimit,
-            options.clusterName.streamName,
-            shardId,
-            this,
-            options.kinesisFetchIntervalMillis
-        ) { consumerInfo }
     }
 
     private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
@@ -63,7 +56,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      */
     @Volatile
     private var running = false
-    private var fetchJob: Job? = null
+
+    private lateinit var fetcher: DynamicRecordFetcher
+    private lateinit var recordBatchReader: RecordBatchStreamReader
 
     override suspend fun start() {
         startConsumer()
@@ -72,17 +67,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     override suspend fun stop() {
         running = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
-        recordFetcher.runCatching { close() }
-        suspendCancellableCoroutine<Unit> { cont ->
-            fetchJob?.invokeOnCompletion {
-                if (it.isNotNull()) {
-                    logger.warn(it) { "\"$consumerInfo\" stopped exceptionally" }
-                } else {
-                    logger.debug { "\"$consumerInfo\" stopped" }
-                }
-                cont.resume(Unit)
-            }
-        }
+        runCatching { fetcher.stop() }
         runCatching {
             shardStatePersistence.flagShardNoMoreInProgress(shardId)
         }.onSuccess { logger.info { "Kinesis consumer verticle stopped successfully on $consumerInfo" } }
@@ -97,80 +82,88 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
         startShardInProgressKeepAlive()
 
-        suspendCancellableCoroutine<Unit> { cont ->
-            launch {
-                val startFetchPosition = StartFetchPositionLookup(
-                    vertx,
-                    consumerInfo,
-                    shardId,
-                    options,
-                    shardStatePersistence,
-                    kinesisClient
-                ).getStartFetchPosition()
-
-                running = true
-
-                beginFetching(startFetchPosition)
-            }.invokeOnCompletion { throwable ->
-                if (throwable.isNotNull()) {
-                    running = false
-                    logger.error(throwable) { "Unable to start Kinesis consumer verticle on \"$consumerInfo\"" }
-                    cont.resumeWithException(throwable)
-                } else {
-                    logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
-                    cont.resume(Unit)
-                }
-            }
+        val startFetchPosition = runCatching {
+            StartFetchPositionLookup(
+                vertx,
+                consumerInfo,
+                shardId,
+                options,
+                shardStatePersistence,
+                kinesisClient
+            ).getStartFetchPosition()
+        }.getOrElse {
+            throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"")
         }
+
+        fetcher = DynamicRecordFetcher(
+            options.fetcherOptions,
+            startFetchPosition,
+            this,
+            options.clusterName.streamName,
+            shardId,
+            kinesisClient
+        )
+        recordBatchReader = fetcher.streamReader
+
+        runCatching { beginFetching(startFetchPosition) }
+            .getOrElse {
+                throw VertxKinesisConsumerOrchestraException("Unable to begin fetching on \"$consumerInfo\"")
+            }
+
+        logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
     }
 
     private suspend fun startShardInProgressKeepAlive() {
         shardStatePersistence.flagShardInProgress(options.shardId)
         launch {
-            while (isActive && running) {
+            while (running) {
                 delay(options.shardProgressExpirationMillis / 2)
-                shardStatePersistence.flagShardInProgress(options.shardId)
+                if (running) {
+                    shardStatePersistence.flagShardInProgress(options.shardId)
+                }
             }
         }
     }
 
-    private fun beginFetching(fetchStartPosition: FetchPosition) {
-        logger.debug { "Start fetching for $consumerInfo" }
-        var currentFetchPosition = fetchStartPosition
-
-        // We not wait on first fetch, as the last fetch operation was a longer time ago.
-        recordFetcher.fetchNextRecords(currentFetchPosition, false)
-
-        fetchJob = launch {
-            while (isActive && running) {
+    private fun beginFetching(startPosition: FetchPosition) {
+        var previousPosition: FetchPosition = startPosition
+        fetcher.start()
+        running = true
+        launch {
+            while (running) {
                 runCatching {
-                    recordFetcher.getNextRecords()
-                }.onSuccess { recordsResponse ->
-                    val records = recordsResponse.records()
-                    // Can be null if the shard did end. This is the next shard iterator in a usual (not failure) case
-                    val usualNextIterator = recordsResponse.nextShardIterator()?.asShardIteratorTyped()
+                    recordBatchReader.readFromStream()
+                }.onSuccess { recordBatch ->
+                    val records = recordBatch.records
 
-                    // If the list of queried records was empty, we still use the previous sequence number, as it didn't change
-                    val usualNextSequenceNumber = records.lastOrNull()?.sequenceNumber()?.asSequenceNumberAfter()
-                        ?: currentFetchPosition.sequenceNumber
+                    val (successfullyDelivered, positionToContinueAfterFailure) = deliverWithFailureHandling(
+                        records,
+                        previousPosition
+                    )
 
-                    val usualNextPosition = usualNextIterator?.let { FetchPosition(it, usualNextSequenceNumber) }
+                    if (successfullyDelivered) {
+                        val nextPosition = if (recordBatch.nextShardIterator != null) {
+                            FetchPosition(recordBatch.nextShardIterator, recordBatch.sequenceNumber)
+                        } else null // Means shard got resharded and did end
 
-                    // We are optimistic and prefetch
-                    if (usualNextPosition.isNotNull()) {
-                        recordFetcher.fetchNextRecords(usualNextPosition)
-                    }
+                        val latestSequenceNumber = recordBatch.sequenceNumber
+                        if (latestSequenceNumber.isNotNull()) {
+                            saveDeliveredSequenceNbr(latestSequenceNumber)
+                        }
 
-                    val finalNextFetchPosition =
-                        deliverWithFailureHandling(records, usualNextPosition, currentFetchPosition)
-
-                    // Shard did not end
-                    if (finalNextFetchPosition.isNotNull()) {
-                        saveFetchPositionIfUpdated(currentFetchPosition, finalNextFetchPosition)
-                        currentFetchPosition = finalNextFetchPosition
-                    } else {
-                        onResharding(recordsResponse.childShards())
-                    }
+                        if (nextPosition != null) {
+                            previousPosition = nextPosition
+                        } else {
+                            onResharding()
+                        }
+                    } else if (positionToContinueAfterFailure != null) {
+                        val sequenceNumberToContinueFrom = positionToContinueAfterFailure.sequenceNumber
+                        if (sequenceNumberToContinueFrom != null) {
+                            saveDeliveredSequenceNbr(sequenceNumberToContinueFrom)
+                        }
+                        fetcher.resetTo(positionToContinueAfterFailure)
+                        previousPosition = positionToContinueAfterFailure
+                    } // In the case of a failed delivery and the position to continue after failure, we simple continue.
                 }.onFailure { throwable ->
                     logger.warn(throwable) { "Failure during fetching records on $consumerInfo ... but will continue" }
                 }
@@ -179,45 +172,21 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private suspend fun saveFetchPositionIfUpdated(
-        currentFetchPosition: FetchPosition,
-        nextFetchPosition: FetchPosition
-    ) {
-        if (nextFetchPosition != currentFetchPosition) {
-            // Sequence number could be null here if the initial delivery of records did fail and
-            // the iterator was based just on latest, there is no sequence number available
-            if (nextFetchPosition.sequenceNumber.isNotNull()) {
-                shardStatePersistence.saveConsumerShardSequenceNumber(
-                    shardId,
-                    nextFetchPosition.sequenceNumber
-                )
-            }
-        }
-    }
-
     private suspend fun deliverWithFailureHandling(
-        records: MutableList<Record>,
-        usualNextPosition: FetchPosition?,
-        currentFetchPosition: FetchPosition
-    ) = runCatching {
+        records: List<Record>,
+        previousPosition: FetchPosition
+    ): Pair<Boolean, FetchPosition?> = runCatching {
         deliver(records)
-        usualNextPosition
+        true to null
     }.getOrElse { throwable ->
-        val nextFetchPositionAccordingFailure =
-            handleConsumerFailure(throwable, usualNextPosition, currentFetchPosition)
-        // If a failure did happen and the
-        if (nextFetchPositionAccordingFailure.isNotNull() && nextFetchPositionAccordingFailure != usualNextPosition) {
-            recordFetcher.restartFetching(nextFetchPositionAccordingFailure)
-        }
-        nextFetchPositionAccordingFailure
+        false to handleConsumerFailure(throwable, previousPosition)
     }
 
     private suspend fun handleConsumerFailure(
         throwable: Throwable,
-        nextPosition: FetchPosition?,
         previousPosition: FetchPosition
     ): FetchPosition? {
-        return if (retryFromFailedRecord(throwable)) {
+        return if (shouldRetryFromFailedRecord(throwable)) {
             if (throwable is KinesisConsumerException) {
                 val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
                 val iteratorAtFailedSequence = kinesisClient.getShardIteratorBySequenceNumberAwait(
@@ -230,43 +199,44 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                             "from failed record."
                 }
                 FetchPosition(iteratorAtFailedSequence, failedSequence)
-            } else {
+            } else { // Retry from last successful shard iterator
                 logger.warn(throwable) {
                     "Kinesis consumer configured to retry from failed record, but no record " +
                             "information available as wrong exception type \"${throwable::class.java.name}\" was thrown. " +
                             "To retry consume, beginning from failed record you must throw an exception of type " +
-                            "\"${KinesisConsumerException::class.java.name}\", so we retry from latest shard iterator"
+                            "\"${KinesisConsumerException::class.java.name}\", so we retry from latest successful fetch position"
                 }
                 previousPosition
             }
-        } else {
-            nextPosition
-        }
+        } else null // Fallback: Ignore and continue
     }
 
     /**
-     * Called when the shard iterator of the consumed shard return null. That state is the signal that the shard got
+     * Called when the shard iterator of the consumed shard did return null. That state is the signal that the shard got
      * resharded and did end.
      */
-    private suspend fun onResharding(childShards: List<ChildShard>) {
+    private suspend fun onResharding() {
         logger.debug {
             "Streaming on $consumerInfo ended because shard iterator did reach its end. Resharding did happen. " +
                     "Consumer(s) will be started recently according new shard setup."
         }
-        // The shared running flag should stay here, otherwise the shard could be consumed concurrently
+        // The shared consumed flag should stay true here, otherwise the shard could be consumed concurrently.
         running = false
-        val childShardIds = if (childShards.isNotEmpty()) {
-            childShards.map { it.shardIdTyped() }
-        } else {
-            // Fallback, if get record response did not respond child shards
-            val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
-            val shards = streamDescription.shards()
+        val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
+        val shards = streamDescription.shards()
+        val childShardIds =
             shards.filter { it.adjacentParentShardIdTyped() == options.shardId || it.parentShardIdTyped() == options.shardId }
                 .map { it.shardIdTyped() }
-        }
         val reshardingEvent = ReshardingEvent.create(shardId, childShardIds)
         vertx.eventBus().send(EventBusAddr.resharding.notification, reshardingEvent)
     }
+
+
+    private suspend fun saveDeliveredSequenceNbr(sequenceNumber: SequenceNumber) =
+        shardStatePersistence.saveConsumerShardSequenceNumber(
+            shardId,
+            sequenceNumber
+        )
 
 
     private suspend fun deliver(records: List<Record>) {
@@ -281,7 +251,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun retryFromFailedRecord(exception: Throwable) =
+    private fun shouldRetryFromFailedRecord(exception: Throwable) =
         if (exception is KinesisConsumerException && exception.errorHandling.isNotNull()) {
             exception.errorHandling == ErrorHandling.RETRY_FROM_FAILED_RECORD
         } else options.errorHandling == ErrorHandling.RETRY_FROM_FAILED_RECORD
@@ -291,5 +261,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      */
     protected abstract fun onRecords(records: List<Record>, handler: Handler<AsyncResult<Void>>)
 
-    private val consumerInfo by lazy { "{ cluster: \"${options.clusterName}\", shard: \"${shardId}\", verticle: \"${this::class.java.name}\" }" }
+    private val consumerInfo: String
+        get() = "{ cluster: \"${options.clusterName}\", shard: \"${shardId}\", verticle: \"${this::class.java.name}\" }"
 }

@@ -1,8 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.TestConsumerVerticle.Companion.RECORD_SEND_ADDR
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.EventBusAddr
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
@@ -20,7 +18,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
 import io.kotest.matchers.collections.*
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.DeliveryOptions
@@ -156,8 +153,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.IGNORE_AND_CONTINUE,
-                    recordsPerBatch = 1,
-                    fetchIntervalMillis = 10
+                    fetcherOptions = FetcherOptions(getRecordsLimit = 1, recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
                 )
             )
 
@@ -175,15 +171,13 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         testContext.asyncDelayed(recordBatching.recordCount) { checkpoint ->
             val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
-            var lastReceivedRecordSequenceNumber: String? = null
+            val recordSequenceNumbers = mutableListOf<String>()
 
             vertx.eventBus().consumer<Record>(RECORD_SEND_ADDR) { msg ->
-                // Every time the same / first record is excepted
                 val record = msg.body()
-                if (lastReceivedRecordSequenceNumber.isNotNullOrBlank()) {
-                    testContext.verify { lastReceivedRecordSequenceNumber.shouldNotBe(record.sequenceNumber()) }
-                    lastReceivedRecordSequenceNumber = record.sequenceNumber()
-                }
+                val sequenceNumber = record.sequenceNumber()
+                testContext.verify { recordSequenceNumbers.shouldNotContain(sequenceNumber) }
+                recordSequenceNumbers.add(sequenceNumber)
 
                 msg.replyConsumeRecordFailedIgnore(record)
 
@@ -194,8 +188,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    recordsPerBatch = 1,
-                    fetchIntervalMillis = 10
+                    fetcherOptions = FetcherOptions(getRecordsLimit = 1, recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
                 )
             )
 
@@ -238,7 +231,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    fetchIntervalMillis = 10
+                    fetcherOptions = FetcherOptions(recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
                 )
             )
 
@@ -247,7 +240,8 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
     }
 
     @Test
-    internal fun split_resharding(testContext: VertxTestContext) = testContext.asyncDelayed(1) { checkpoint ->
+    internal fun
+            split_resharding(testContext: VertxTestContext) = testContext.asyncDelayed(1) { checkpoint ->
         val (parentShardId, firstChild, secondChild) = reshardingIdConstellation()
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
@@ -380,16 +374,14 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         shardId: ShardId,
         shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
         errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-        fetchIntervalMillis: Long = 1000L,
-        recordsPerBatch: Int = 1000
+        fetcherOptions: FetcherOptions = FetcherOptions()
     ) = KinesisConsumerVerticleOptions(
         shardId,
         OrchestraClusterName(TEST_APPLICATION_NAME, TEST_STREAM_NAME),
         shardIteratorStrategy,
         errorHandling,
-        fetchIntervalMillis,
-        recordsPerBatch,
-        shardProgressExpirationMillis = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
+        shardProgressExpirationMillis = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
+        fetcherOptions = fetcherOptions
     )
 }
 

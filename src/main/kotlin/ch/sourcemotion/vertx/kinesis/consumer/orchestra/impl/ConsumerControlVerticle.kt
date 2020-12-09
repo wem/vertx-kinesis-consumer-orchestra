@@ -1,9 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadConfiguration
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
@@ -167,29 +164,26 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
             options.clusterName,
             shardIteratorStrategy,
             options.errorHandling,
-            options.kinesisFetchInterval,
-            options.recordsPerBatchLimit,
             options.sequenceNumberImportAddress,
-            options.shardProgressExpirationMillis
+            options.shardProgressExpirationMillis,
+            options.fetcherOptions
         )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     internal class Options(
         val clusterName: OrchestraClusterName,
-        // We not force the user to add Java date Jackson module
-        var kinesisFetchInterval: Long,
-        var recordsPerBatchLimit: Int,
-        var redisHeimdallOptions: RedisHeimdallOptions,
+        val redisHeimdallOptions: RedisHeimdallOptions,
+        val fetcherOptions: FetcherOptions,
 
-        var shardIteratorStrategy: ShardIteratorStrategy,
-        var loadConfiguration: LoadConfiguration,
-        var errorHandling: ErrorHandling,
+        val shardIteratorStrategy: ShardIteratorStrategy,
+        val loadConfiguration: LoadConfiguration,
+        val errorHandling: ErrorHandling,
         // We not force the user to add Java date Jackson module
         val consumerDeploymentLockExpiration: Long,
         // We not force the user to add Java date Jackson module
         val consumerDeploymentLockRetryInterval: Long,
-        var consumerVerticleClass: String,
-        var consumerVerticleConfig: Map<String, Any>,
+        val consumerVerticleClass: String,
+        val consumerVerticleConfig: Map<String, Any>,
         val sequenceNumberImportAddress: String? = null,
         val shardProgressExpirationMillis : Long
     )
@@ -198,9 +192,8 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
 internal fun VertxKinesisOrchestraOptions.asConsumerControlOptions() = ConsumerControlVerticle.Options(
     OrchestraClusterName(applicationName, streamName),
-    kinesisFetchInterval.toMillis(),
-    recordsPerBatchLimit,
     redisOptions,
+    fetcherOptions,
     shardIteratorStrategy,
     loadConfiguration,
     errorHandling,
