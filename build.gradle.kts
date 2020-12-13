@@ -3,9 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.20"
-    kotlin("kapt") version "1.4.20"
-    id("io.spring.dependency-management") version "1.0.9.RELEASE"
+    kotlin("jvm") version "1.4.21"
+    kotlin("kapt") version "1.4.21"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
 }
@@ -17,19 +16,12 @@ repositories {
     jcenter()
 }
 
-dependencyManagement {
-    imports {
-        mavenBom("io.vertx:vertx-dependencies:${libVersion("vertx")}")
-        mavenBom("org.junit:junit-bom:${libVersion("junit")}")
-        mavenBom("org.testcontainers:testcontainers-bom:${libVersion("testcontainers")}")
-        mavenBom("software.amazon.awssdk:bom:${libVersion("awssdk")}")
-    }
-    generatedPomCustomization {
-        setEnabled(false)
-    }
-}
-
 dependencies {
+    implementation(platform("io.vertx:vertx-dependencies:${libVersion("vertx")}"))
+    implementation(platform("org.junit:junit-bom:${libVersion("junit")}"))
+    implementation(platform("org.testcontainers:testcontainers-bom:${libVersion("testcontainers")}"))
+    implementation(platform("software.amazon.awssdk:bom:${libVersion("awssdk")}"))
+
     api(kotlin("stdlib-jdk8"))
     api(kotlin("reflect"))
     api(vertx("vertx-core"))
@@ -52,8 +44,8 @@ dependencies {
         exclude(group = "software.amazon.awssdk", module = "*")
     }
 
-    api("com.fasterxml.jackson.module:jackson-module-kotlin:${dependencyManagement.importedProperties["jackson.version"]}")
-    api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${dependencyManagement.importedProperties["jackson.version"]}")
+    api("com.fasterxml.jackson.module:jackson-module-kotlin:${libVersion("jackson")}")
+    api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${libVersion("jackson")}")
     api("io.github.microutils:kotlin-logging:${libVersion("kotlin-logging")}")
 
     testImplementation(kotlin("test-junit"))
@@ -71,7 +63,7 @@ dependencies {
     }
 }
 
-fun vertx(module: String) = "io.vertx:$module:${libVersion("vertx")}"
+fun vertx(module: String) = "io.vertx:$module"
 fun awsSdk(module: String) = "software.amazon.awssdk:$module"
 fun libVersion(suffix: String) = property("version.$suffix")
 
