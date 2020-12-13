@@ -28,24 +28,24 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Shard iterators and states are persisted on Redis per application, so it's possible that multiple application independently
      * consumes records from the same stream.
      */
-    var applicationName: String,
+    val applicationName: String,
 
     /**
      * Name of the stream this orchestra should consume records from.
      */
-    var streamName: String,
+    val streamName: String,
 
     /**
      * AWS region on which the orchestra will run.
      */
-    var region: String = DEFAULT_REGION.id(),
+    val region: String = DEFAULT_REGION.id(),
 
     /**
      * Expiration of the progress flag during shard processing. If the flag is not updated within this expiration period
      * the shard will be handled as not currently processed by any consumer. This is to avoid death locks in the case of
      * ungracefully shutdown of a consumer or the whole orchestra.
      */
-    var shardProgressExpiration: Duration = Duration.ofMillis(DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS),
+    val shardProgressExpiration: Duration = Duration.ofMillis(DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS),
 
     /**
      * If the user has its own implementation of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService] this can be configured here.
@@ -55,47 +55,47 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      *
      * You must use a variant of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory.expose] to expose your custom shard state persistence implementation!
      */
-    var useCustomShardStatePersistenceService: Boolean = false,
+    val useCustomShardStatePersistenceService: Boolean = false,
 
     /**
      * Supplier of the correct credentials for the respectively environment.
      */
-    var credentialsProviderSupplier: Supplier<AwsCredentialsProvider> = Supplier { DefaultCredentialsProvider.create() },
+    val credentialsProviderSupplier: Supplier<AwsCredentialsProvider> = Supplier { DefaultCredentialsProvider.create() },
 
     /**
      * Alternative kinesis endpoint.
      */
-    var kinesisEndpoint: String? = null,
+    val kinesisEndpoint: String? = null,
 
     /**
      * Vert.x Redis options. Used for shard state persistence (sequence number position of consuming shard) and
      * VKCO cluster communication (if not Vert.x is used)
      */
-    var redisOptions: RedisHeimdallOptions,
+    val redisOptions: RedisHeimdallOptions,
 
     /**
      * AWS SDK metrics options
      */
-    var awsClientMetricOptions: AwsClientMetricOptions = DisabledAwsClientMetricOptions(),
+    val awsClientMetricOptions: AwsClientMetricOptions = DisabledAwsClientMetricOptions(),
 
     /**
      * Strategy how and which shard iterator should be used. Please read Javadoc of
      * [ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy] too for more information.
      */
-    var shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
+    val shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
 
     /**
      * Finally the definition how many max. shards an orchestra instance could / should consume.
      * Please read also the Javadoc on [ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadStrategy] too
      * for more information.
      */
-    var loadConfiguration: LoadConfiguration = LoadConfiguration.createConsumeExact(1),
+    val loadConfiguration: LoadConfiguration = LoadConfiguration.createConsumeExact(1),
 
     /**
      * How the orchestra should behave on failures during record processing.
      * Please read Javadoc on [ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling] too for more information.
      */
-    var errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
+    val errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
 
     /**
      * To avoid multiple consumer are processing the same shard, during deployment of them a lock will be acquired.
@@ -123,7 +123,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * - [com.gardena.smartgarden.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerVerticle]
      * - [com.gardena.smartgarden.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle]
      */
-    var consumerVerticleClass: String,
+    val consumerVerticleClass: String,
 
     /**
      * Additional configuration, passed as options to the deployment of the provided [consumerVerticleClass].
@@ -132,7 +132,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Be aware that this options are a combination with the internal configuration, so if you use Jackson
      * please add @[JsonIgnoreProperties] with [JsonIgnoreProperties.ignoreUnknown] true configured.
      */
-    var consumerVerticleOptions: JsonObject = JsonObject(),
+    val consumerVerticleOptions: JsonObject = JsonObject(),
 
     /**
      * Options to import last proceeded Kinesis sequence number per shard, according to KCL v1.
@@ -141,7 +141,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * The importer will read the most recent sequence number of a lease for a shard, so the VKCS will continue to fetch
      * from this sequence number.
      */
-    var kclV1ImportOptions: KCLV1ImportOptions? = null,
+    val kclV1ImportOptions: KCLV1ImportOptions? = null,
 
     /**
      * Fetcher options. Default a dynamic fetcher is enabled, which will adjust the get records request limit according

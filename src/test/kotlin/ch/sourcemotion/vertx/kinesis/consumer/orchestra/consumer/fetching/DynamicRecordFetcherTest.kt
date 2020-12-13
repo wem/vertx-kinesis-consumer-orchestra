@@ -12,10 +12,13 @@ import com.nhaarman.mockitokotlin2.doAnswer
 import com.nhaarman.mockitokotlin2.doReturn
 import com.nhaarman.mockitokotlin2.mock
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.longs.shouldBeBetween
+import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.delay
+import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -171,6 +174,53 @@ internal class DynamicRecordFetcherTest : AbstractVertxTest() {
                 break
             }
         }
+    }
+
+    @RepeatedTest(10)
+    internal fun interval_with_latency(testContext: VertxTestContext) = testContext.async {
+        val sut = DynamicRecordFetcher(
+            FetcherOptions(recordsFetchIntervalMillis = 200L),
+            dummyFetchPosition,
+            this,
+            STREAM,
+            shardId,
+            kinesisClient {
+                Thread.sleep(100) // We simulate latency
+                getRecordsResponse(recordList(1))
+            }
+        )
+        var receivedRecordCount = 0
+        val streamReader = sut.streamReader
+        val startTime = System.currentTimeMillis()
+        sut.start()
+        while (receivedRecordCount < 5) {
+            receivedRecordCount += streamReader.readFromStream().records.size
+        }
+        val duration = System.currentTimeMillis() - startTime
+        duration.shouldBeBetween(800, 1200) // We need a window because warmup etc.
+    }
+
+    @RepeatedTest(10)
+    internal fun without_interval_or_latency(testContext: VertxTestContext) = testContext.async {
+        val sut = DynamicRecordFetcher(
+            FetcherOptions(recordsFetchIntervalMillis = 1L),
+            dummyFetchPosition,
+            this,
+            STREAM,
+            shardId,
+            kinesisClient {
+                getRecordsResponse(recordList(1))
+            }
+        )
+        var receivedRecordCount = 0
+        val streamReader = sut.streamReader
+        val startTime = System.currentTimeMillis()
+        sut.start()
+        while (receivedRecordCount < 5) {
+            receivedRecordCount += streamReader.readFromStream().records.size
+        }
+        val duration = System.currentTimeMillis() - startTime
+        duration.shouldBeLessThan(400) // We need a window because warmup etc.
     }
 
     private fun kinesisClient(supplier: Supplier<GetRecordsResponse>) = mock<KinesisAsyncClient> {

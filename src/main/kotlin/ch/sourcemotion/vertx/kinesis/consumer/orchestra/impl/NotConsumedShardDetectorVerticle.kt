@@ -46,7 +46,7 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
     private var detectionInProgress = false
 
     override suspend fun start() {
-        vertx.eventBus().consumer(
+        vertx.eventBus().localConsumer(
             EventBusAddr.detection.activeConsumerCountNotification, ::onActiveConsumerCountNotification
         ).completionHandlerAwait()
         logger.info { "Not consumed shard detector verticle started" }
@@ -112,7 +112,7 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
     private fun startDetection() {
         if (detectionTimerId.isNull()) {
             logger.info { "Start not consumed shards detection" }
-            vertx.setPeriodic(options.detectionInterval) {
+            detectionTimerId = vertx.setPeriodic(options.detectionInterval) {
                 detectNotConsumedShards()
             }
         }
@@ -121,14 +121,12 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
     private fun stopDetection() {
         detectionTimerId?.let {
             logger.info { "Stop not consumed shards detection" }
+            detectionTimerId = null
             vertx.cancelTimer(it)
         }
     }
 
     data class Options(
-        /**
-         * Maximum this VKCO is configured to consume.
-         */
         val clusterName: OrchestraClusterName,
         val maxShardCountToConsume: Int,
         val detectionInterval: Long,

@@ -5,13 +5,17 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersC
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.eventbus.requestAwait
+import io.vertx.kotlin.coroutines.dispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Test
 import java.time.Duration
 
@@ -84,7 +88,8 @@ internal class NotConsumedShardDetectorVerticleTest : AbstractKinesisAndRedisTes
     }
 
     @Test
-    internal fun already_started_consumers_and_not_consumed_detected(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+    internal fun already_consumed_shard_not_detected_as_not_consumed(testContext: VertxTestContext)
+        = testContext.asyncDelayed(1, defaultOptions.detectionInterval * 3) { checkpoint ->
         val notConsumedShardId =
             kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first().shardIdTyped()
 
@@ -93,12 +98,40 @@ internal class NotConsumedShardDetectorVerticleTest : AbstractKinesisAndRedisTes
                 val cmd = msg.body()
                 cmd.shardIds.shouldContainExactly(notConsumedShardId)
             }
-            msg.ack()
-            checkpoint.flag()
+            launch {
+                shardStatePersistenceService.flagShardInProgress(notConsumedShardId)
+                msg.ack()
+                checkpoint.flag()
+            }
         }
 
-        deployNotConsumedShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 2))
-        sendShardsConsumedCountNotification(1)
+        deployNotConsumedShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 1))
+        sendShardsConsumedCountNotification(0)
+    }
+
+    @Test
+    internal fun start_consumers_sequential(testContext: VertxTestContext)
+        = testContext.async(5) { checkpoint ->
+        val shardIds =
+            kinesisClient.createAndGetStreamDescriptionWhenActive(5).shards().map { it.shardIdTyped() }.toMutableList()
+
+        eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
+            testContext.verify {
+                val cmd = msg.body()
+                val startedShardId = cmd.shardIds.shouldHaveSize(1).first()
+                shardIds.shouldContain(startedShardId)
+                shardIds.remove(startedShardId)
+                CoroutineScope(context.dispatcher()).launch {
+                    shardStatePersistenceService.flagShardInProgress(startedShardId)
+                    msg.ack()
+                    sendShardsConsumedCountNotification(0) // We fake the state, so we can start shard for shard
+                    checkpoint.flag()
+                }
+            }
+        }
+
+        deployNotConsumedShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 1))
+        sendShardsConsumedCountNotification(0)
     }
 
     @Test

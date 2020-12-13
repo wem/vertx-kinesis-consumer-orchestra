@@ -41,8 +41,8 @@ internal class GetRecordsLimitAdjustment private constructor(
 
     fun calculateNextLimit(): Int {
         if (recordCountList.full) {
-            val currentRecordsAverage = percentile.calculatePercentileAverage(recordCountList)
-            if (currentRecordsAverage.increaseThresholdExceeded()) {
+            val calculatedPercentileOrAverage = percentile.calculatePercentileAverage(recordCountList)
+            if (calculatedPercentileOrAverage.increaseThresholdExceeded()) {
                 if ((currentLimit + limitIncreaseStep) <= MAX_ALLOWED_LIMIT) {
                     currentLimit += limitIncreaseStep
                     logger.info { "Current get records limit increased to \"$currentLimit\" on stream \"$streamName\" / shard \"$shardId\"" }
@@ -50,11 +50,11 @@ internal class GetRecordsLimitAdjustment private constructor(
                     currentLimit = MAX_ALLOWED_LIMIT
                     logger.info { "Current get records limit increased to allowed maximum \"$currentLimit\" on stream \"$streamName\" / shard \"$shardId\"" }
                 }
-            } else if (currentRecordsAverage.decreaseThresholdExceeded()) {
+            } else if (calculatedPercentileOrAverage.decreaseThresholdExceeded()) {
                 if ((currentLimit - limitDecreaseStep) >= minimalLimit) {
                     currentLimit -= limitDecreaseStep
                     logger.info { "Current get records limit decreased to \"$currentLimit\" on stream \"$streamName\" / shard \"$shardId\"" }
-                } else {
+                } else if (currentLimit > minimalLimit) {
                     currentLimit = minimalLimit
                     logger.info { "Current get records limit decreased to configured minimum \"$minimalLimit\" on stream \"$streamName\" / shard \"$shardId\"" }
                 }
@@ -64,5 +64,5 @@ internal class GetRecordsLimitAdjustment private constructor(
     }
 
     private fun Int.increaseThresholdExceeded() = this > (currentLimit - limitIncreaseThreshold)
-    private fun Int.decreaseThresholdExceeded() = this < (currentLimit - limitDecreaseThreshold)
+    private fun Int.decreaseThresholdExceeded() = this < minimalLimit || this < (currentLimit - limitDecreaseThreshold)
 }

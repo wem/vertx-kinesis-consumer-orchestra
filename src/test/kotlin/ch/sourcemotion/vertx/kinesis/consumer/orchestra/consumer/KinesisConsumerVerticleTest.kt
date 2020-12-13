@@ -26,6 +26,7 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.core.undeployAwait
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -153,7 +154,11 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.IGNORE_AND_CONTINUE,
-                    fetcherOptions = FetcherOptions(getRecordsLimit = 1, recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
+                    fetcherOptions = FetcherOptions(
+                        getRecordsLimit = 1,
+                        recordsFetchIntervalMillis = 10,
+                        dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false)
+                    )
                 )
             )
 
@@ -188,7 +193,11 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    fetcherOptions = FetcherOptions(getRecordsLimit = 1, recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
+                    fetcherOptions = FetcherOptions(
+                        getRecordsLimit = 1,
+                        recordsFetchIntervalMillis = 10,
+                        dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false)
+                    )
                 )
             )
 
@@ -207,7 +216,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
     ) {
         val recordBatching = 1 batchesOf 10
 
-        testContext.async(recordBatching.recordCount ) { checkpoint ->
+        testContext.async(recordBatching.recordCount) { checkpoint ->
             val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
             var recordSequenceNumber: String? = null
@@ -231,7 +240,10 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 createKinesisConsumerVerticleConfig(
                     streamDescription.getFirstShardId(),
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                    fetcherOptions = FetcherOptions(recordsFetchIntervalMillis = 10, dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false))
+                    fetcherOptions = FetcherOptions(
+                        recordsFetchIntervalMillis = 10,
+                        dynamicLimitAdjustment = DynamicLimitAdjustment(enabled = false)
+                    )
                 )
             )
 
@@ -352,9 +364,12 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
     }
 
     @Test
-    internal fun not_flagged_in_progress_after_undeploy(testContext: VertxTestContext) = testContext.async {
+    internal fun shard_progress_flagging(testContext: VertxTestContext) = testContext.async {
+        val shardProgressExpirationMillis = 100L
         val shardId = kinesisClient.createAndGetStreamDescriptionWhenActive(1).getFirstShardId()
-        val deploymentId = deployTestConsumerVerticle(shardId)
+        val deploymentId = deployTestConsumerVerticle(createKinesisConsumerVerticleConfig(shardId, shardProgressExpirationMillis = shardProgressExpirationMillis))
+        shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
+        delay(shardProgressExpirationMillis * 2)
         shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
         vertx.undeployAwait(deploymentId)
         shardStatePersistenceService.getShardIdsInProgress().shouldBeEmpty()
@@ -367,20 +382,18 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         instances: Int = 1
     ) = deployTestVerticle<TestConsumerVerticle>(options, instances)
 
-    private suspend fun deployTestConsumerVerticle(shardId: ShardId, instances: Int = 1) =
-        deployTestConsumerVerticle(createKinesisConsumerVerticleConfig(shardId), instances)
-
     private fun createKinesisConsumerVerticleConfig(
         shardId: ShardId,
         shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
         errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
+        shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
         fetcherOptions: FetcherOptions = FetcherOptions()
     ) = KinesisConsumerVerticleOptions(
         shardId,
         OrchestraClusterName(TEST_APPLICATION_NAME, TEST_STREAM_NAME),
         shardIteratorStrategy,
         errorHandling,
-        shardProgressExpirationMillis = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
+        shardProgressExpirationMillis = shardProgressExpirationMillis,
         fetcherOptions = fetcherOptions
     )
 }

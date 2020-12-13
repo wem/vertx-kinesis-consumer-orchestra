@@ -11,6 +11,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyn
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.Message
+import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
@@ -40,6 +41,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(EventBusAddr.resharding.notification, this::onReshardingEvent)
+            .completionHandlerAwait()
     }
 
     /**
@@ -104,14 +106,26 @@ internal class ReshardingVerticle : CoroutineVerticle() {
     private suspend fun sendLocalStartConsumerCmd(shardId: ShardId) {
         val cmd = StartConsumersCmd(listOf(shardId), ShardIteratorStrategy.EXISTING_OR_LATEST)
         vertx.eventBus()
-            .runCatching { requestAwait<Unit>(EventBusAddr.consumerControl.startConsumersCmd, cmd, localOnlyDeliveryOptions) }
+            .runCatching {
+                requestAwait<Unit>(
+                    EventBusAddr.consumerControl.startConsumersCmd,
+                    cmd,
+                    localOnlyDeliveryOptions
+                )
+            }
             .onSuccess { logger.info { "Shard $shardId will now be consumed after resharding." } }
             .onFailure { logger.warn(it) { "Shard $shardId will NOT be consumed after resharding. Please restart this VKCO instance." } }
     }
 
     private suspend fun sendLocalStopShardConsumerCmd(shardId: ShardId) {
         vertx.eventBus()
-            .runCatching { requestAwait<Unit>(EventBusAddr.consumerControl.stopConsumerCmd, StopConsumerCmd(shardId), localOnlyDeliveryOptions) }
+            .runCatching {
+                requestAwait<Unit>(
+                    EventBusAddr.consumerControl.stopConsumerCmd,
+                    StopConsumerCmd(shardId),
+                    localOnlyDeliveryOptions
+                )
+            }
             .onSuccess { logger.info { "Stop consumer command of shard $shardId success" } }
             .onFailure {
                 logger.warn(it) {

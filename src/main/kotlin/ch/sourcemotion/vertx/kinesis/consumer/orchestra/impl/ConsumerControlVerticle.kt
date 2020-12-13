@@ -128,17 +128,17 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
             )
         }.onSuccess { deploymentId ->
             consumerDeploymentIds[consumerOptions.shardId] = deploymentId
-            logger.info { "Consumer started for shard ${consumerOptions.shardId}" }
+            logger.info { "Consumer started for stream ${options.clusterName.streamName} / shard \"${consumerOptions.shardId}\"."}
         }.onFailure {
-            logger.error(it) { "Failed to start consumer of shard ${consumerOptions.shardId}" }
+            logger.error(it) { "Failed to start consumer of stream ${options.clusterName.streamName} / shard ${consumerOptions.shardId}" }
         }
     }
 
     private fun logAndNotifyAboutActiveConsumers() {
         if (consumerDeploymentIds.keys.isEmpty()) {
-            logger.info { "Currently no shards get consumed." }
+            logger.info { "Currently no shards get consumed on stream \"${options.clusterName.streamName}\"." }
         } else {
-            logger.info { "Currently the shards ${consumerDeploymentIds.keys.joinToString()} are consumed." }
+            logger.info { "Currently the shards ${consumerDeploymentIds.keys.joinToString()} are consumed on stream \"${options.clusterName.streamName}\"." }
         }
         notifyAboutActiveConsumers()
     }
@@ -178,9 +178,7 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         val shardIteratorStrategy: ShardIteratorStrategy,
         val loadConfiguration: LoadConfiguration,
         val errorHandling: ErrorHandling,
-        // We not force the user to add Java date Jackson module
         val consumerDeploymentLockExpiration: Long,
-        // We not force the user to add Java date Jackson module
         val consumerDeploymentLockRetryInterval: Long,
         val consumerVerticleClass: String,
         val consumerVerticleConfig: Map<String, Any>,

@@ -16,7 +16,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
@@ -80,6 +79,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun startConsumer() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
+        shardStatePersistence.flagShardInProgress(options.shardId)
         startShardInProgressKeepAlive()
 
         val startFetchPosition = runCatching {
@@ -113,11 +113,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
     }
 
-    private suspend fun startShardInProgressKeepAlive() {
-        shardStatePersistence.flagShardInProgress(options.shardId)
-        launch {
-            while (running) {
-                delay(options.shardProgressExpirationMillis / 2)
+    private fun startShardInProgressKeepAlive() {
+        vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
+            launch {
                 if (running) {
                     shardStatePersistence.flagShardInProgress(options.shardId)
                 }
@@ -142,11 +140,11 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     )
 
                     if (successfullyDelivered) {
+                        val latestSequenceNumber = recordBatch.sequenceNumber
                         val nextPosition = if (recordBatch.nextShardIterator != null) {
-                            FetchPosition(recordBatch.nextShardIterator, recordBatch.sequenceNumber)
+                            FetchPosition(recordBatch.nextShardIterator, latestSequenceNumber)
                         } else null // Means shard got resharded and did end
 
-                        val latestSequenceNumber = recordBatch.sequenceNumber
                         if (latestSequenceNumber.isNotNull()) {
                             saveDeliveredSequenceNbr(latestSequenceNumber)
                         }

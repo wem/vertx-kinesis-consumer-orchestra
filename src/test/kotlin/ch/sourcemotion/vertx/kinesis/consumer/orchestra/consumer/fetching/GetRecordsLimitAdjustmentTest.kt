@@ -81,17 +81,18 @@ internal class GetRecordsLimitAdjustmentTest {
 
     @Test
     internal fun decrease_threshold_not_reached() {
-        val decreaseThreshold = 300
+        val decreaseThreshold = 200
         val initialGetRecordsLimit = 500
         val options = FetcherOptions(
             dynamicLimitAdjustment = DynamicLimitAdjustment(
                 getRecordResultsToStartAdjustment = 1,
                 limitDecreaseThreshold = decreaseThreshold,
+                limitIncreaseThreshold = 100
             ), getRecordsLimit = initialGetRecordsLimit
         )
 
         val sut = GetRecordsLimitAdjustment.withOptions("some-stream", ShardId("test-shard"), options)
-        sut.includeResponse(getRecordsResponseWithRecords(200)) // threshold is greater than, not equals or greather
+        sut.includeResponse(getRecordsResponseWithRecords(300)) // threshold is greater than, not equals or greather
         sut.calculateNextLimit().shouldBe(initialGetRecordsLimit)
     }
 
@@ -131,6 +132,64 @@ internal class GetRecordsLimitAdjustmentTest {
         val sut = GetRecordsLimitAdjustment.withOptions("some-stream", ShardId("test-shard"), options)
         sut.includeResponse(getRecordsResponseWithRecords(199))
         sut.calculateNextLimit().shouldBe(minimalLimit)
+    }
+
+    @Test
+    internal fun calculated_below_minimum() {
+        val minimalLimit = 100
+        val decreaseThreshold = 100
+        val decreaseStep = 100
+        val initialGetRecordsLimit = 500
+        val options = FetcherOptions(
+            dynamicLimitAdjustment = DynamicLimitAdjustment(
+                getRecordResultsToStartAdjustment = 1,
+                limitDecreaseThreshold = decreaseThreshold,
+                limitIncreaseThreshold = 1,
+                limitDecreaseStep = decreaseStep,
+                minimalLimit = minimalLimit
+            ), getRecordsLimit = initialGetRecordsLimit
+        )
+
+        val sut = GetRecordsLimitAdjustment.withOptions("some-stream", ShardId("test-shard"), options)
+        sut.includeResponse(getRecordsResponseWithRecords(99))
+        sut.calculateNextLimit().shouldBe(400)
+        sut.includeResponse(getRecordsResponseWithRecords(99))
+        sut.calculateNextLimit().shouldBe(300)
+        sut.includeResponse(getRecordsResponseWithRecords(99))
+        sut.calculateNextLimit().shouldBe(200)
+        sut.includeResponse(getRecordsResponseWithRecords(99))
+        sut.calculateNextLimit().shouldBe(100)
+        sut.includeResponse(getRecordsResponseWithRecords(99))
+        sut.calculateNextLimit().shouldBe(100)
+    }
+
+    @Test
+    internal fun calculated_zero() {
+        val minimalLimit = 100
+        val decreaseThreshold = 100
+        val decreaseStep = 100
+        val initialGetRecordsLimit = 500
+        val options = FetcherOptions(
+            dynamicLimitAdjustment = DynamicLimitAdjustment(
+                getRecordResultsToStartAdjustment = 1,
+                limitDecreaseThreshold = decreaseThreshold,
+                limitIncreaseThreshold = 1,
+                limitDecreaseStep = decreaseStep,
+                minimalLimit = minimalLimit
+            ), getRecordsLimit = initialGetRecordsLimit
+        )
+
+        val sut = GetRecordsLimitAdjustment.withOptions("some-stream", ShardId("test-shard"), options)
+        sut.includeResponse(getRecordsResponseWithRecords(0))
+        sut.calculateNextLimit().shouldBe(400)
+        sut.includeResponse(getRecordsResponseWithRecords(0))
+        sut.calculateNextLimit().shouldBe(300)
+        sut.includeResponse(getRecordsResponseWithRecords(0))
+        sut.calculateNextLimit().shouldBe(200)
+        sut.includeResponse(getRecordsResponseWithRecords(0))
+        sut.calculateNextLimit().shouldBe(100)
+        sut.includeResponse(getRecordsResponseWithRecords(0))
+        sut.calculateNextLimit().shouldBe(100)
     }
 
     private fun getRecordsResponseWithRecords(recordCount: Int) = mock<GetRecordsResponse> {
