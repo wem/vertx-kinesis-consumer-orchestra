@@ -9,8 +9,6 @@ plugins {
     `maven-publish`
 }
 
-(System.getProperty("release_version") ?: findProperty("release_version"))?.let { version = it.toString() }
-
 repositories {
     mavenLocal()
     jcenter()
@@ -33,16 +31,14 @@ dependencies {
 
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
-    api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}")
-    api(awsSdk("kinesis"))
-    api(awsSdk("dynamodb"))
-    api(awsSdk("sts"))
+    api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}", JacksonExclusion)
+    api(awsSdk("kinesis"), JacksonExclusion)
+    api(awsSdk("dynamodb"), JacksonExclusion)
+    api(awsSdk("sts"), JacksonExclusion)
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
     api("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
 
-    api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}") {
-        exclude(group = "software.amazon.awssdk", module = "*")
-    }
+    api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}", AwsSdkExclusion)
 
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${libVersion("jackson")}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${libVersion("jackson")}")
@@ -53,13 +49,51 @@ dependencies {
     testImplementation("org.junit.vintage:junit-vintage-engine")
     testImplementation("io.kotest:kotest-assertions-core-jvm:${libVersion("kotest")}")
     testImplementation(vertx("vertx-junit5"))
+    testImplementation(vertx("vertx-rx-java"))
+    testImplementation(vertx("vertx-rx-java2"))
     testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${libVersion("mockito-kotlin")}")
     testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${libVersion("log4j")}")
     testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
-    testImplementation("org.testcontainers:localstack")
-    testImplementation("org.testcontainers:toxiproxy")
-    testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}") {
-        exclude("io.netty", "*")
+    testImplementation("org.testcontainers:localstack", JacksonExclusion)
+    testImplementation("org.testcontainers:toxiproxy", JacksonExclusion)
+    testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}", NettyExclusion)
+}
+
+configurations.forEach {
+    it.exclude("software.amazon.awssdk", "netty-nio-client")
+}
+
+object AwsSdkExclusion : DependencyExclusion(
+    mapOf(
+        "software.amazon.awssdk" to listOf("*")
+    )
+)
+
+object NettyExclusion : DependencyExclusion(
+    mapOf(
+        "io.netty" to listOf("*")
+    )
+)
+
+object JacksonExclusion : DependencyExclusion(
+    mapOf(
+        "com.fasterxml.jackson.core" to listOf("*"),
+        "com.fasterxml.jackson.dataformat" to listOf("*"),
+        "com.fasterxml.jackson.datatype" to listOf("*"),
+        "com.fasterxml.jackson.module" to listOf("*")
+    )
+)
+
+abstract class DependencyExclusion(private val dependencies: Map<String, List<String>>) :
+    Action<ExternalModuleDependency> {
+    override fun execute(t: ExternalModuleDependency) {
+        dependencies.forEach {
+            val group = it.key
+            val modules = it.value
+            modules.forEach { module ->
+                t.exclude(group, module)
+            }
+        }
     }
 }
 
@@ -108,8 +142,8 @@ bintray {
         userOrg = "michel-werren"
         vcsUrl = "https://github.com/wem/vertx-kinesis-consumer-orchestra"
         version(closureOf<BintrayExtension.VersionConfig> {
-            name = project.version.toString()
-            released = Date().toString()
+            name = "${project.version}"
+            released = "${Date()}"
         })
         setLicenses("MIT")
     })
@@ -128,7 +162,7 @@ publishing {
             pom {
                 groupId = groupId
                 artifactId = artifactId
-                version = project.version.toString()
+                version = "${project.version}"
                 licenses {
                     license {
                         name.set("The MIT License")
