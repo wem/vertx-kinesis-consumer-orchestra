@@ -3,6 +3,8 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.shardOf
+import io.kotest.matchers.collections.shouldBeEmpty
+import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.Shard
@@ -16,9 +18,6 @@ internal class ConsumerShardIdListFactoryTest {
     private val sut = ConsumerShardIdListFactory
 
 
-    /**
-     * 10 fresh shard without inheritance.
-     */
     @Test
     internal fun no_shard_finished() {
         val availableIds = ShardIdGenerator.generateShardIdList(10)
@@ -26,17 +25,25 @@ internal class ConsumerShardIdListFactoryTest {
             availableIds.map { shardOf(it) },
             listOf(),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(availableIds)
+        ).shouldContainExactly(availableIds)
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 1 merge child shard with unfinished parents.
-     */
     @Test
-    internal fun not_finished_and_merge_parents_notfinished() {
+    internal fun one_shard_finished() {
+        val allShardIds = ShardIdGenerator.generateShardIdList(10)
+        val finishedShardId = allShardIds.last()
+        val availableShardIds = allShardIds.filter { finishedShardId != it }
+        sut.create(
+            availableShardIds.map { shardOf(it) },
+            listOf(finishedShardId),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(availableShardIds)
+    }
+
+    @Test
+    internal fun not_finished_and_merge_parents_not_finished() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
@@ -49,116 +56,96 @@ internal class ConsumerShardIdListFactoryTest {
         )
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 1 merge child shard with a finished parent and unfinished adjacent parent.
-     */
     @Test
     internal fun not_finished_and_merged_with_finished_adjacentParent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
-            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
-            listOf(mergeAdjacentParent.shardId().asShardIdTyped()),
+            listOf(notFinished, mergeParent, mergeChild),
+            listOf(mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(mergeParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 1 merge child shard with a finished adjacent parent and unfinished parent.
-     */
     @Test
     internal fun not_finished_and_merged_with_finished_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
-            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
+            listOf(notFinished, mergeAdjacentParent, mergeChild),
             listOf(mergeParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(
-            mergeAdjacentParent.shardIdTyped(),
-            notFinished.shardIdTyped()
-        )
+        ).shouldContainExactlyInAnyOrder(mergeAdjacentParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 1 merge child shard with finished parents.
-     */
     @Test
     internal fun not_finished_and_merged_with_finished_parents() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
-            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
+            listOf(notFinished, mergeChild),
             listOf(mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped(), mergeChild.shardIdTyped())
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 1 merge child shard with finished parents.
-     */
     @Test
     internal fun finished_and_merged_with_finished_parents() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (mergeParent, mergeAdjacentParent, mergeChild) = createMergeInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
-            listOf(mergeParent, mergeAdjacentParent, mergeChild),
+            listOf(mergeChild),
             listOf(finished.shardIdTyped(), mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(mergeChild.shardIdTyped())
+        ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 1 merge child shard with unavailable parents.
-     */
     @Test
     internal fun not_finished_and_merged_with_unavailable_parents() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, _, mergeChild) = createMergeInheritance()
+        val (_, _, mergeChild) = mergeShardInheritance()
 
         sut.create(
             listOf(notFinished, mergeChild),
             listOf(),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped(), mergeChild.shardIdTyped())
+        ).shouldContainExactly(notFinished.shardIdTyped())
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 1 merge child shard with unavailable parents.
-     */
     @Test
     internal fun finished_and_merged_with_unavailable_parents() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, _, mergeChild) = createMergeInheritance()
+        val (_, _, mergeChild) = mergeShardInheritance()
 
         sut.create(
             listOf(mergeChild),
             listOf(finished.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(mergeChild.shardIdTyped())
+        ).shouldBeEmpty()
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 2 split children shards with finished parent.
-     */
+    @Test
+    internal fun merged_with_unavailable_parent_and_finished_adjacent() {
+        val (_, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeChild),
+            listOf(mergeAdjacentParent.shardIdTyped()),
+            MAX_MAX_SHARD_COUNT
+        ).shouldBeEmpty()
+    }
+
     @Test
     internal fun not_finished_and_split_with_finished_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
-            listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
+            listOf(notFinished, splitChildLeft, splitChildRight),
             listOf(splitParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(
@@ -166,118 +153,86 @@ internal class ConsumerShardIdListFactoryTest {
         )
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 2 split children shards with unfinished parent.
-     */
     @Test
     internal fun not_finished_and_split_with_not_finished_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(
-            splitParent.shardIdTyped(), notFinished.shardIdTyped()
-        )
+        ).shouldContainExactlyInAnyOrder(splitParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 2 split children shards with finished parent.
-     */
     @Test
     internal fun finished_and_split_with_finished_parent() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (splitParent, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
-            listOf(finished, splitParent, splitChildLeft, splitChildRight),
+            listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped(), splitParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(
-            splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped()
-        )
+        ).shouldContainExactlyInAnyOrder(splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped())
     }
 
-    /**
-     * - 1 unfinished shard without inheritance.
-     * - 2 split children shards with no more available parent.
-     */
     @Test
     internal fun not_finished_and_split_with_unavailable_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
             listOf(notFinished, splitChildLeft, splitChildRight),
             listOf(),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(
-            notFinished.shardIdTyped(), splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped()
-        )
+        ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped())
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 2 split children shards with no more available parent.
-     */
     @Test
     internal fun finished_and_split_with_unavailable_parent() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
-        ).shouldContainExactlyInAnyOrder(
-            splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped()
-        )
+        ).shouldBeEmpty()
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 2 split children shards with no more available parent.
-     */
     @Test
     internal fun exact_finished_and_split_with_unavailable_parent() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, splitChildLeft, splitChildRight) = createSplitInheritance()
+        val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped()),
-            1
-        ).shouldContainExactlyInAnyOrder(splitChildLeft.shardIdTyped())
+            MAX_MAX_SHARD_COUNT
+        ).shouldBeEmpty()
     }
 
-    /**
-     * - 1 finished shard without inheritance.
-     * - 1 unfinished shard without inheritance.
-     */
     @Test
-    internal fun exact_finished_and_not_finished() {
+    internal fun finished_and_not_finished() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
         val notFinished = shardOf(ShardIdGenerator.generateShardId(1))
 
         sut.create(
-            listOf(finished, notFinished),
+            listOf(notFinished),
             listOf(finished.shardIdTyped()),
-            2
-        ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped())
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(notFinished.shardIdTyped())
     }
 
-    private fun createSplitInheritance(): Triple<Shard, Shard, Shard> {
+    private fun splitShardInheritance(): Triple<Shard, Shard, Shard> {
         val splitParent = shardOf(ShardIdGenerator.generateShardId(1))
         val splitChildLeft = shardOf(ShardIdGenerator.generateShardId(2), splitParent.shardIdTyped())
         val splitChildRight = shardOf(ShardIdGenerator.generateShardId(3), splitParent.shardIdTyped())
         return Triple(splitParent, splitChildLeft, splitChildRight)
     }
 
-    private fun createMergeInheritance(): Triple<Shard, Shard, Shard> {
+    private fun mergeShardInheritance(): Triple<Shard, Shard, Shard> {
         val mergeParent = shardOf(ShardIdGenerator.generateShardId(1))
         val mergeAdjacentParent = shardOf(ShardIdGenerator.generateShardId(2))
         val mergeChild = shardOf(
