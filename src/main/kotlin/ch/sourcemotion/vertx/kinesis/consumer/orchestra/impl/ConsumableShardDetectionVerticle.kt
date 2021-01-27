@@ -18,10 +18,10 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import kotlin.LazyThreadSafetyMode.NONE
 
 /**
- * Verticle that will detect not consumed shards. It's stoppable if the VKCO instance consumes the configured maximum
+ * Verticle that will detect consumable shards. The detection will stopp if the VKCO instance consumes the configured max.
  * of shards. And it's able to restart detecting as well if consumer(s) was stopped.
  */
-class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
+internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
 
     private companion object : KLogging() {
         private val localOnlyDeliveryOptions = deliveryOptionsOf(localOnly = true)
@@ -42,48 +42,65 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
 
     private var detectionTimerId: Long? = null
 
+    /**
+     * Count of the currently possible consumers to start. This reflects the difference between the count of already
+     * running consumers and the configured max. shards to consume.
+     */
     private var possibleShardCountToStartConsume = 0
+
+    /**
+     * Flag to prevent from multiple simultaneous consumable detection runs.
+     */
     private var detectionInProgress = false
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(
-            EventBusAddr.detection.activeConsumerCountNotification, ::onActiveConsumerCountNotification
+            EventBusAddr.detection.consumedShardCountNotification, ::onConsumedShardCountNotification
         ).completionHandlerAwait()
-        logger.info { "Not consumed shard detector verticle started" }
+        logger.debug { "Consumable shard detector verticle started" }
     }
 
     override suspend fun stop() {
         stopDetection()
-        logger.info { "Not consumed shard detector verticle stopped" }
+        logger.debug { "Consumable shard detector verticle stopped" }
     }
 
-    private fun onActiveConsumerCountNotification(msg: Message<Int>) {
-        val shardsConsumedCount = msg.body()
-        if (shardsConsumedCount < options.maxShardCountToConsume) {
-            possibleShardCountToStartConsume = options.maxShardCountToConsume - shardsConsumedCount
-            startDetection()
+    /**
+     * Consumer of notifications about the count of currently consumed shards.
+     */
+    private fun onConsumedShardCountNotification(msg: Message<Int>) {
+        val currentConsumedShardCount = msg.body()
+        possibleShardCountToStartConsume = options.maxShardCountToConsume - currentConsumedShardCount
+        if (possibleShardCountToStartConsume > 0) {
+            runCatching { startDetection() }
+                .onFailure { logger.error(it) { "Unable to start consumable shard detection on stream \"${options.clusterName.streamName}\"" } }
         } else {
-            stopDetection()
+            runCatching { stopDetection() }
+                .onFailure { logger.warn(it) { "Unable to stop consumable shard detection on stream \"${options.clusterName.streamName}\"" } }
         }
         msg.ack()
     }
 
-    private fun detectNotConsumedShards() {
+    private fun detectNotConsumedShards(handlerId: Long) {
         if (possibleShardCountToStartConsume <= 0 || detectionInProgress) return
         detectionInProgress = true
         launch {
             val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
             val finishedShardIds = shardStatePersistence.getFinishedShardIds()
-            val unavailableShards =
-                shardStatePersistence.getShardIdsInProgress() + finishedShardIds
-            val availableShards = streamDescription.shards()
-                .filterNot { shard -> unavailableShards.contains(shard.shardIdTyped()) }
+            val shardIdsInProgress = shardStatePersistence.getShardIdsInProgress()
+            val unavailableShardIds = shardIdsInProgress + finishedShardIds
 
-            if (availableShards.isNotEmpty()) {
+            val availableShards = streamDescription.shards()
+                .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
+
+            val shardIdListToConsume =
+                ConsumerShardIdListFactory.create(availableShards, finishedShardIds, possibleShardCountToStartConsume)
+
+            if (shardIdListToConsume.isNotEmpty()) {
+
                 // On the initial detection we use the configured iterator strategy.
-                // Afterwards, on later detected not consumed shards we use existing or latest.
-                val shardIdListToConsume =
-                    ConsumerShardIdListFactory.create(availableShards, finishedShardIds, possibleShardCountToStartConsume)
+                // Afterwards, on later detected not consumed shards we use existing or latest,
+                // because any later detected consumable shard was either resharded or no more consumed by other VKCO instance.
                 val iteratorStrategy = if (initialDetection) {
                     options.initialIteratorStrategy
                 } else {
@@ -91,7 +108,7 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
                 }
 
                 logger.info {
-                    "Not consumed shards detected ${availableShards.joinToString { it.shardId() }}. " +
+                    "Consumable shards detected ${availableShards.joinToString { it.shardId() }}. " +
                             "Will send start command for shards ${shardIdListToConsume.joinToString()} according to " +
                             "\"parent(s) must be finished first\" rule."
                 }
@@ -100,8 +117,8 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
                 vertx.eventBus().requestAwait<Unit>(
                     EventBusAddr.consumerControl.startConsumersCmd, cmd, localOnlyDeliveryOptions
                 )
-                // Decrease here to avoid unexpected over-commit
-                possibleShardCountToStartConsume -= shardIdListToConsume.size
+            } else {
+                logger.debug { "Consumable shard detection did run, but there was no consumable shard to consume" }
             }
         }.invokeOnCompletion {
             initialDetection = false
@@ -109,18 +126,30 @@ class NotConsumedShardDetectorVerticle : CoroutineVerticle() {
         }
     }
 
+    /**
+     * Starts the detection. It will run as long as this VKCO instance is NOT consuming the configured
+     * max. count of shards.
+     *
+     * @see [onConsumedShardCountNotification]
+     */
     private fun startDetection() {
         if (detectionTimerId.isNull()) {
-            logger.info { "Start not consumed shards detection" }
-            detectionTimerId = vertx.setPeriodic(options.detectionInterval) {
-                detectNotConsumedShards()
-            }
+            logger.info { "Start consumable shards detection on stream \"${options.clusterName.streamName}\"" }
+            detectionTimerId = vertx.setPeriodic(options.detectionInterval, ::detectNotConsumedShards)
+        } else {
+            logger.info { "Consumable shards detection already running" }
         }
     }
 
+    /**
+     * Stop of the detection. This will happen if this VKCO instance is currently consuming the configured max.
+     * count of shards.
+     *
+     * @see [onConsumedShardCountNotification]
+     */
     private fun stopDetection() {
         detectionTimerId?.let {
-            logger.info { "Stop not consumed shards detection" }
+            logger.info { "Stop consumable shards detection on stream \"${options.clusterName.streamName}\"" }
             detectionTimerId = null
             vertx.cancelTimer(it)
         }

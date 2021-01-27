@@ -64,7 +64,7 @@ class VertxKinesisOrchestraImpl(
         }
 
         deployReshardingVerticle()
-        deployNotConsumedShardDetectorVerticle()
+        deployConsumableShardDetectorVerticle()
 
         val orchestrationVerticleDeploymentId =
             runCatching {
@@ -112,14 +112,14 @@ class VertxKinesisOrchestraImpl(
         }
     }
 
-    private suspend fun deployNotConsumedShardDetectorVerticle() {
-        val options = NotConsumedShardDetectorVerticle.Options(
+    private suspend fun deployConsumableShardDetectorVerticle() {
+        val options = ConsumableShardDetectionVerticle.Options(
             OrchestraClusterName(options.applicationName, options.streamName),
             options.loadConfiguration.maxShardsCount,
             options.loadConfiguration.notConsumedShardDetectionInterval,
             options.shardIteratorStrategy
         )
-        subsystemDeploymentIds.add(deployVerticle<NotConsumedShardDetectorVerticle>(options))
+        subsystemDeploymentIds.add(deployVerticle<ConsumableShardDetectionVerticle>(options))
     }
 
     private suspend fun deployReshardingVerticle() {

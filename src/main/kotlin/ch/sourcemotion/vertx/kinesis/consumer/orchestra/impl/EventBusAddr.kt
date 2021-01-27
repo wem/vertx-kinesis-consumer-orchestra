@@ -3,7 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 /**
  * Central place to hold event bus addresses
  */
-object EventBusAddr {
+internal object EventBusAddr {
 
     private const val ADDR_BASE = "/vkco"
 
@@ -24,6 +24,6 @@ object EventBusAddr {
 
     object Detection {
         private const val ADDR_BASE = "${EventBusAddr.ADDR_BASE}/detection"
-        const val activeConsumerCountNotification = "$ADDR_BASE/notification/active-consumer-count"
+        const val consumedShardCountNotification = "$ADDR_BASE/notification/consumed-shard-count"
     }
 }
