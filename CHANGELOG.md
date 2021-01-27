@@ -37,3 +37,20 @@ The consumer deployment (per shard) massively simplified. There is a "not consum
 The resharding process significantly simplified. On merge the child shard get directly consumed on the VKCO instance of the latest finished parent. 
 In the case of split, the first child get directly consumed by the same VKCO instance as the parent was consumed. 
 The second child will get deployed by the "not consumed shard detection".
+
+## [0.8.1]
+### Fixed
+#### #23 Race condition in consumable shard detection
+The interaction between consumable shard detection and consumer control hardened and simplified. 
+The detection verticle known possible count of consumer to start now updated only by event from consumer control.
+
+#### Consumable shard list
+Correction of the consumable shard list creation. Will not contain children of unavailable (still consumed) parents any more.
+
+### Improved
+#### Renaming
+- NotConsumedShardDetectorVerticle to ConsumableShardDetectionVerticle
+- ConsumerShardIdListFactory to ConsumableShardIdListFactory
+
+#### Logging
+Consumer start / stop log entries should now be more clear and clean, especially on resharding.
