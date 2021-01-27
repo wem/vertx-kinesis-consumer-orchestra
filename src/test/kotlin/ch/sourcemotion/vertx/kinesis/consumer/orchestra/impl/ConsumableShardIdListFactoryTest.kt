@@ -9,13 +9,13 @@ import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.Shard
 
-internal class ConsumerShardIdListFactoryTest {
+internal class ConsumableShardIdListFactoryTest {
 
     private companion object {
         const val MAX_MAX_SHARD_COUNT = Int.MAX_VALUE
     }
 
-    private val sut = ConsumerShardIdListFactory
+    private val sut = ConsumableShardIdListFactory
 
 
     @Test

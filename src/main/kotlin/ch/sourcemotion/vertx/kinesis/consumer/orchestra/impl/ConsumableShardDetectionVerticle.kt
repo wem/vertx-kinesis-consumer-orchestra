@@ -94,7 +94,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
                 .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
 
             val shardIdListToConsume =
-                ConsumerShardIdListFactory.create(availableShards, finishedShardIds, possibleShardCountToStartConsume)
+                ConsumableShardIdListFactory.create(availableShards, finishedShardIds, possibleShardCountToStartConsume)
 
             if (shardIdListToConsume.isNotEmpty()) {
 
