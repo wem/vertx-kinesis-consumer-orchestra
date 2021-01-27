@@ -11,6 +11,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyn
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.Message
+import io.vertx.core.eventbus.ReplyException
 import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
@@ -113,8 +114,18 @@ internal class ReshardingVerticle : CoroutineVerticle() {
                     localOnlyDeliveryOptions
                 )
             }
-            .onSuccess { logger.info { "Shard $shardId will now be consumed after resharding." } }
-            .onFailure { logger.warn(it) { "Shard $shardId will NOT be consumed after resharding. Please restart this VKCO instance." } }
+            .onFailure {
+                if (it is ReplyException) {
+                    when (it.failureCode()) {
+                        StartConsumersCmd.CONSUMER_START_FAILURE -> logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding." }
+                        StartConsumersCmd.CONSUMER_CAPACITY_FAILURE -> logger.warn(it) { "No capacity to start consumer for shard \"$shardId\" after resharding. " +
+                                "Maybe already started by consumable shard detection" }
+                    }
+                } else {
+                    logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding. This may relates to a bug. " +
+                            "Please restart this VKCO instance and report an issue." }
+                }
+            }
     }
 
     private suspend fun sendLocalStopShardConsumerCmd(shardId: ShardId) {
@@ -126,11 +137,15 @@ internal class ReshardingVerticle : CoroutineVerticle() {
                     localOnlyDeliveryOptions
                 )
             }
-            .onSuccess { logger.info { "Stop consumer command of shard $shardId success" } }
             .onFailure {
-                logger.warn(it) {
-                    "Stop consumer of shard $shardId failed. " +
-                            "This is basically not critical, but this VKCO instance should be redeployed in long run."
+                if (it is ReplyException) {
+                    when (it.failureCode()) {
+                        StopConsumerCmd.CONSUMER_STOP_FAILURE -> logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding." }
+                        StopConsumerCmd.UNKNOWN_CONSUMER_FAILURE -> logger.warn(it) { "Consumer of resharded shard \"$shardId\" unknown. This should not happen, but should not be critical." }
+                    }
+                } else {
+                    logger.warn(it) { "Failed to stop consumer for shard \"$shardId\" after resharding. This may relates to a bug. " +
+                            "Please restart this VKCO instance and report an issue." }
                 }
             }
     }
@@ -149,7 +164,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         )).also { canReOrchestrate ->
             if (canReOrchestrate) {
                 val garbageWarnMsg =
-                    "There maybe some data garbage on Redis. Looks like not all merge parent ready flags are removed."
+                    "There maybe some data garbage on Redis. Looks like not all merge parent ready flags of child shard \"${mergeReshardingEvent.childShardId}\" are removed."
                 shardStatePersistence.runCatching {
                     deleteMergeParentsReshardingReadyFlag(mergeReshardingEvent.childShardId)
                 }.onSuccess {

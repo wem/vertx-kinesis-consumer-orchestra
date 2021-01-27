@@ -67,13 +67,15 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         if (deploymentIdToUndeploy.isNotNullOrBlank()) {
             vertx.undeploy(deploymentIdToUndeploy) {
                 if (it.succeeded()) {
+                    logger.info { "Consumer for shard \"$shardId\" stopped" }
                     msg.ack()
                 } else {
-                    msg.fail(0, it.cause().message)
+                    msg.fail(StopConsumerCmd.CONSUMER_STOP_FAILURE, it.cause().message)
                 }
             }
         } else {
-            msg.fail(0, "No consumer deployed for shard $shardId, so cannot be stopped")
+            logger.info { "Unable to stop consumer for shard \"$shardId\", because no known consumer for this shard" }
+            msg.fail(StopConsumerCmd.UNKNOWN_CONSUMER_FAILURE, "Unknown consumer")
         }
         logAndNotifyAboutActiveConsumers()
     }
@@ -88,7 +90,7 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         if (consumerCapacity() <= 0) {
             logger.warn { "Consumer control unable to start consumer(s) for shards ${cmd.shardIds.joinToString()} because no consumer capacity left" }
             logAndNotifyAboutActiveConsumers()
-            msg.fail(0, "No consumer capacity left")
+            msg.fail(StartConsumersCmd.CONSUMER_CAPACITY_FAILURE, "No consumer capacity left")
             return
         }
         launch {
@@ -123,7 +125,7 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
                 msg.ack()
             } else {
                 logger.warn(it) { "Consumer control unable to start consumers for shards \"${cmd.shardIds.joinToString()}\"" }
-                msg.fail(0, "Consumer start failed")
+                msg.fail(StartConsumersCmd.CONSUMER_START_FAILURE, it.message)
             }
         }
     }
