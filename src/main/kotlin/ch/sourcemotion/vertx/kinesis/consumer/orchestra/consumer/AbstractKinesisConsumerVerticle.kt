@@ -92,7 +92,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                 kinesisClient
             ).getStartFetchPosition()
         }.getOrElse {
-            throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"")
+            throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"", it)
         }
 
         fetcher = DynamicRecordFetcher(
@@ -107,7 +107,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
         runCatching { beginFetching(startFetchPosition) }
             .getOrElse {
-                throw VertxKinesisConsumerOrchestraException("Unable to begin fetching on \"$consumerInfo\"")
+                throw VertxKinesisConsumerOrchestraException("Unable to begin fetching on \"$consumerInfo\"", it)
             }
 
         logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
