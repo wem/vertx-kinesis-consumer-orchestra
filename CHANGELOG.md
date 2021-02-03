@@ -54,3 +54,17 @@ Correction of the consumable shard list creation. Will not contain children of u
 
 #### Logging
 Consumer start / stop log entries should now be more clear and clean, especially on resharding.
+
+## [0.8.2]
+### Fixed
+#### #24 Consumable detection not working on child shards if parents are no more existing.
+No more existing parents get now considered on consumable shard detection.
+
+### Improved
+#### Verticle undeploy order on close
+The verticles are now undeployed in reversed order as they got deployed. 
+This will ensure that any verticle is available as long as it's needed.
+
+#### Cleanup
+- Change modifier of some classes to internal.
+- Remove unused code.
