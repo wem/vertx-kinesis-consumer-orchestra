@@ -6,7 +6,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeRes
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.SplitReshardingEvent
 import io.vertx.core.eventbus.EventBus
 
-object OrchestraCodecs {
+internal object OrchestraCodecs {
 
     /**
      * Deploys event bus message codecs used by VKCO.

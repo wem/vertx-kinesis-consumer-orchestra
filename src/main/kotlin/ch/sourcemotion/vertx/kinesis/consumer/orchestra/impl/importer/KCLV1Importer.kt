@@ -96,7 +96,7 @@ internal class KCLV1Importer : CoroutineVerticle() {
 }
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class KCLV1ImporterOptions(
+internal data class KCLV1ImporterOptions(
     val leaseTableName: String,
     val importAddress: String,
     val dynamoDbEndpoint: String?

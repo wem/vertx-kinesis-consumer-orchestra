@@ -6,7 +6,7 @@ import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
 import io.vertx.redis.client.Response
 
-class LuaExecutor(private val redis: Redis) {
+internal class LuaExecutor(private val redis: Redis) {
     suspend fun execute(
         scriptDescription: LuaScriptDescription,
         keys: List<String> = emptyList(),

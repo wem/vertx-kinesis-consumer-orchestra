@@ -18,7 +18,7 @@ import java.net.URI
  * Factory of [KinesisAsyncClient] instances. This factory can be preconfigured, so later [Context] specific instances
  * can be fabricated.
  */
-class KinesisAsyncClientFactory(
+internal class KinesisAsyncClientFactory(
     private val vertx: Vertx,
     private val region: String,
     private val kinesisEndpoint: String?,

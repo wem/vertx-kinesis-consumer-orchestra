@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 
-class VertxKinesisOrchestraImpl(
+internal class VertxKinesisOrchestraImpl(
     private val vertx: Vertx,
     private val options: VertxKinesisOrchestraOptions
 ) : VertxKinesisOrchestra {

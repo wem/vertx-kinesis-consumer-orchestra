@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import mu.KLogging
 import kotlin.LazyThreadSafetyMode.NONE
 
-class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStatePersistenceService {
+internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), ShardStatePersistenceService {
 
     private companion object : KLogging()
 

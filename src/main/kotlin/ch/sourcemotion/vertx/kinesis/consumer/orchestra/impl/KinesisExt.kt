@@ -11,7 +11,7 @@ import software.amazon.awssdk.services.kinesis.model.StreamStatus
  * @return Description of Kinesis stream for given [streamName]. This function will wait until the stream
  * has status [StreamStatus.ACTIVE] so we are based on actual state.
  */
-suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
+internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
     var description = streamDescriptionAwait(streamName)
     while (description.streamStatus() != StreamStatus.ACTIVE) {
         description = streamDescriptionAwait(streamName)
@@ -23,12 +23,12 @@ private suspend fun KinesisAsyncClient.streamDescriptionAwait(streamName: String
     it.streamName(streamName)
 }.await().streamDescription()
 
-suspend fun KinesisAsyncClient.getLatestShardIteratorAwait(
+internal suspend fun KinesisAsyncClient.getLatestShardIteratorAwait(
     streamName: String,
     shardId: ShardId
 ) = getShardIteratorAwait(streamName, ShardIteratorType.LATEST, shardId)
 
-suspend fun KinesisAsyncClient.getShardIteratorAwait(
+internal suspend fun KinesisAsyncClient.getShardIteratorAwait(
     streamName: String,
     shardIteratorType: ShardIteratorType,
     shardId: ShardId,
@@ -42,7 +42,7 @@ suspend fun KinesisAsyncClient.getShardIteratorAwait(
     }.await().shardIterator().asShardIteratorTyped()
 }
 
-suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumberAwait(
+internal suspend fun KinesisAsyncClient.getShardIteratorBySequenceNumberAwait(
     streamName: String,
     shardId: ShardId,
     sequenceNumber: SequenceNumber

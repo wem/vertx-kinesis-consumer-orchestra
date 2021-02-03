@@ -6,7 +6,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 /**
  * [AwsCredentialsProvider] delegate which is shareable within the Vert.x local shared data.
  */
-class ShareableAwsCredentialsProvider(private val delegate: AwsCredentialsProvider) :
+internal class ShareableAwsCredentialsProvider(private val delegate: AwsCredentialsProvider) :
     AwsCredentialsProvider by delegate,
     Shareable {
     companion object {

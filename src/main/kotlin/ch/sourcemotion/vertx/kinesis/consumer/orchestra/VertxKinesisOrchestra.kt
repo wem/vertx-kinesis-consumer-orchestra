@@ -1,15 +1,9 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.VertxKinesisOrchestraImpl
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesisOrchestraModules
 import io.vertx.core.AsyncResult
-import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.core.Vertx
-import io.vertx.core.json.jackson.DatabindCodec
-import io.vertx.kotlin.coroutines.dispatcher
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 
 /**
  * Entry point to create and orchestra instance. Usually there should be only one instance per Vert.x instance.
@@ -30,7 +24,7 @@ interface VertxKinesisOrchestra {
         fun create(
             vertx: Vertx,
             options: VertxKinesisOrchestraOptions
-        )  = VertxKinesisOrchestraImpl(vertx, options)
+        ): VertxKinesisOrchestra  = VertxKinesisOrchestraImpl(vertx, options)
     }
 
     fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>)

@@ -8,7 +8,7 @@ import io.vertx.redis.client.Request
 /**
  * Simple a loader with cache of LUA scripts used for short, fast operations against Redis.
  */
-object LuaScriptLoader {
+internal object LuaScriptLoader {
 
     private val scriptCache = HashMap<LuaScriptDescription, String>()
 

@@ -10,7 +10,7 @@ import software.amazon.awssdk.services.kinesis.model.Shard
  * Factory to create list of shards they should / could be consumed, according a given maximum.
  * Also the rule will be applied, that children of parents they are not finished or not available will not get consumed yet.
  */
-object ConsumableShardIdListFactory {
+internal object ConsumableShardIdListFactory {
     fun create(
         existingShards: ShardList,
         /**

@@ -6,7 +6,7 @@ import kotlinx.coroutines.channels.Channel
 import software.amazon.awssdk.services.kinesis.model.GetRecordsResponse
 import software.amazon.awssdk.services.kinesis.model.Record
 
-data class RecordBatch(
+internal data class RecordBatch(
     val records: List<Record>,
     val nextShardIterator: ShardIterator?,
     val sequenceNumber: SequenceNumber?,
@@ -15,7 +15,7 @@ data class RecordBatch(
     val resharded: Boolean = nextShardIterator == null
 }
 
-class RecordBatchStream(private val recordsPreFetchLimit: Int) {
+internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
 
     private var responseEntryChannel = Channel<ResponseEntry>(recordsPreFetchLimit)
 
@@ -70,11 +70,11 @@ class RecordBatchStream(private val recordsPreFetchLimit: Int) {
 
 private data class ResponseEntry(val record: Record?, val shardIterator: ShardIterator?, val millisBehindLatest: Long)
 
-interface RecordBatchStreamWriter {
+internal interface RecordBatchStreamWriter {
     suspend fun writeToStream(response: GetRecordsResponse)
     fun resetStream()
 }
 
-interface RecordBatchStreamReader {
+internal interface RecordBatchStreamReader {
     suspend fun readFromStream(): RecordBatch
 }

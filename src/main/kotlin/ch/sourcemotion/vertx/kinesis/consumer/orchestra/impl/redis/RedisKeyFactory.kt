@@ -3,7 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 
-class RedisKeyFactory(private val clusterName: OrchestraClusterName) {
+internal class RedisKeyFactory(private val clusterName: OrchestraClusterName) {
     private val shardFinishedKeyBase = "$clusterName-finished-"
     private val shardProgressKeyBase = "$clusterName-progress-"
 

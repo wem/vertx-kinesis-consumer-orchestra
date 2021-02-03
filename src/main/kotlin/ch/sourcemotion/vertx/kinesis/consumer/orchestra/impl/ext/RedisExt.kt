@@ -5,4 +5,4 @@ import io.vertx.redis.client.Response
 /**
  * As many Redis calls returns OK on success, we acknowledge that as boolean.
  */
-fun Response?.okResponseAsBoolean() = toString().equals("OK", true)
+internal fun Response?.okResponseAsBoolean() = toString().equals("OK", true)
