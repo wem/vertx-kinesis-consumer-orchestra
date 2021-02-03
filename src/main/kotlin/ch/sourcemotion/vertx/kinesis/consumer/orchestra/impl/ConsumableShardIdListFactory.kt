@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.kinesis.model.Shard
  */
 object ConsumableShardIdListFactory {
     fun create(
+        existingShards: ShardList,
         /**
          * Available shards are those they are not finished and not in progress.
          */
@@ -23,12 +24,13 @@ object ConsumableShardIdListFactory {
         finishedShardIds: ShardIdList,
         maxShardCount: Int,
     ): ShardIdList {
+        val existingShardIdList = existingShards.map { it.shardIdTyped() }
         val availableShardIds = availableShards.map { shard -> shard.shardIdTyped() }
         val shardIdsToConsume = mutableListOf<ShardId>()
         val pendingShards =
             availableShards.toMutableList()
                 .removeParentShards() // Remove parents to avoid that they appear 2 times, one time by first level reference and by child
-                .removeChildrenWithUnavailableParents(finishedShardIds, availableShardIds)
+                .removeChildrenWithUnavailableParents(existingShardIdList, finishedShardIds, availableShardIds)
 
         val notFinishedParentsByChildren = getNotFinishedParentsByChildren(
             pendingShards.filter { it.isResharded() },
@@ -70,12 +72,15 @@ object ConsumableShardIdListFactory {
     }
 
     private fun MutableList<Shard>.removeChildrenWithUnavailableParents(
+        existingShardIds: ShardIdList,
         finishedShardIds: ShardIdList,
         availableShardIds: ShardIdList
     ) = apply {
         removeIf { childShard ->
-            childShard.isResharded() && childShard.parentShardIds()
-                .all { finishedShardIds.contains(it) || availableShardIds.contains(it) }.not()
+            // We only consider existing parent shards
+            val existingParentShardIds = existingShardIds.intersect(childShard.parentShardIds())
+            childShard.isResharded() && existingParentShardIds
+                .all { existingParentShardId -> finishedShardIds.contains(existingParentShardId) || availableShardIds.contains(existingParentShardId) }.not()
         }
     }
 

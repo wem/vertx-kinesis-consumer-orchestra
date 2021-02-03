@@ -90,11 +90,12 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
             val shardIdsInProgress = shardStatePersistence.getShardIdsInProgress()
             val unavailableShardIds = shardIdsInProgress + finishedShardIds
 
-            val availableShards = streamDescription.shards()
+            val existingShards = streamDescription.shards()
+            val availableShards = existingShards
                 .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
 
             val shardIdListToConsume =
-                ConsumableShardIdListFactory.create(availableShards, finishedShardIds, possibleShardCountToStartConsume)
+                ConsumableShardIdListFactory.create(existingShards, availableShards, finishedShardIds, possibleShardCountToStartConsume)
 
             if (shardIdListToConsume.isNotEmpty()) {
 

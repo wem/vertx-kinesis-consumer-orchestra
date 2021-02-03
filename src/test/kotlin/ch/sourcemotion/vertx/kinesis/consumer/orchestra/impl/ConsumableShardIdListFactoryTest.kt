@@ -17,15 +17,27 @@ internal class ConsumableShardIdListFactoryTest {
 
     private val sut = ConsumableShardIdListFactory
 
-
     @Test
     internal fun no_shard_finished() {
         val availableIds = ShardIdGenerator.generateShardIdList(10)
         sut.create(
             availableIds.map { shardOf(it) },
-            listOf(),
+            availableIds.map { shardOf(it) },
+            emptyList(),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactly(availableIds)
+    }
+
+    @Test
+    internal fun exact_no_shard_finished() {
+        val maxShardCount = 2
+        val availableIds = ShardIdGenerator.generateShardIdList(10)
+        sut.create(
+            availableIds.map { shardOf(it) },
+            availableIds.map { shardOf(it) },
+            emptyList(),
+            maxShardCount
+        ).shouldContainExactly(availableIds.take(maxShardCount))
     }
 
     @Test
@@ -34,6 +46,7 @@ internal class ConsumableShardIdListFactoryTest {
         val finishedShardId = allShardIds.last()
         val availableShardIds = allShardIds.filter { finishedShardId != it }
         sut.create(
+            availableShardIds.map { shardOf(it) },
             availableShardIds.map { shardOf(it) },
             listOf(finishedShardId),
             MAX_MAX_SHARD_COUNT
@@ -46,6 +59,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             emptyList(),
             MAX_MAX_SHARD_COUNT
@@ -62,6 +76,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeParent, mergeChild),
             listOf(mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -74,6 +89,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeAdjacentParent, mergeChild),
             listOf(mergeParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -86,6 +102,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(notFinished, mergeChild, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeChild),
             listOf(mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -98,6 +115,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(finished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
             listOf(finished.shardIdTyped(), mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -107,11 +125,12 @@ internal class ConsumableShardIdListFactoryTest {
     @Test
     internal fun not_finished_and_merged_with_unavailable_parents() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, _, mergeChild) = mergeShardInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeChild),
-            listOf(),
+            emptyList(),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactly(notFinished.shardIdTyped())
     }
@@ -119,9 +138,10 @@ internal class ConsumableShardIdListFactoryTest {
     @Test
     internal fun finished_and_merged_with_unavailable_parents() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, _, mergeChild) = mergeShardInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
 
         sut.create(
+            listOf(finished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
             listOf(finished.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -130,11 +150,84 @@ internal class ConsumableShardIdListFactoryTest {
 
     @Test
     internal fun merged_with_unavailable_parent_and_finished_adjacent() {
-        val (_, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
+        val (mergeParent, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeParent, mergeAdjacentParent, mergeChild),
+            listOf(mergeChild),
+            listOf(mergeAdjacentParent.shardIdTyped()),
+            MAX_MAX_SHARD_COUNT
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    internal fun merged_with_not_existing_parents() {
+        val (_, _, mergeChild) = mergeShardInheritance()
 
         sut.create(
             listOf(mergeChild),
+            listOf(mergeChild),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(mergeChild.shardIdTyped())
+    }
+
+    @Test
+    internal fun merged_with_not_existing_and_not_finished_parent() {
+        val (_, _, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeChild),
+            listOf(mergeChild),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(mergeChild.shardIdTyped())
+    }
+
+    @Test
+    internal fun merged_with_not_existing_parent_and_finished_adjacent() {
+        val (_, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeAdjacentParent, mergeChild),
+            listOf(mergeChild),
             listOf(mergeAdjacentParent.shardIdTyped()),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(mergeChild.shardIdTyped())
+    }
+
+    @Test
+    internal fun merged_with_not_existing_and_unavailable_parent() {
+        val (_, _, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeChild),
+            listOf(mergeChild),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(mergeChild.shardIdTyped())
+    }
+
+    @Test
+    internal fun merged_with_not_existing_parent_unavailable_adjacent() {
+        val (_, mergeAdjacentParent, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeAdjacentParent, mergeChild),
+            listOf(mergeChild),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    internal fun merged_with_not_existing_adjacent_unavailable_parent() {
+        val (mergeParent, _, mergeChild) = mergeShardInheritance()
+
+        sut.create(
+            listOf(mergeParent, mergeChild),
+            listOf(mergeChild),
+            emptyList(),
             MAX_MAX_SHARD_COUNT
         ).shouldBeEmpty()
     }
@@ -145,6 +238,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
+            listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(notFinished, splitChildLeft, splitChildRight),
             listOf(splitParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -160,7 +254,8 @@ internal class ConsumableShardIdListFactoryTest {
 
         sut.create(
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
-            listOf(),
+            listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
+            emptyList(),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(splitParent.shardIdTyped(), notFinished.shardIdTyped())
     }
@@ -171,6 +266,7 @@ internal class ConsumableShardIdListFactoryTest {
         val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
+            listOf(finished, splitParent, splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped(), splitParent.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -180,11 +276,12 @@ internal class ConsumableShardIdListFactoryTest {
     @Test
     internal fun not_finished_and_split_with_unavailable_parent() {
         val notFinished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
+            listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(notFinished, splitChildLeft, splitChildRight),
-            listOf(),
+            emptyList(),
             MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped())
     }
@@ -192,9 +289,10 @@ internal class ConsumableShardIdListFactoryTest {
     @Test
     internal fun finished_and_split_with_unavailable_parent() {
         val finished = shardOf(ShardIdGenerator.generateShardId())
-        val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
+            listOf(finished, splitParent, splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
@@ -202,15 +300,39 @@ internal class ConsumableShardIdListFactoryTest {
     }
 
     @Test
-    internal fun exact_finished_and_split_with_unavailable_parent() {
-        val finished = shardOf(ShardIdGenerator.generateShardId())
+    internal fun split_with_unavailable_parent() {
+        val (splitParent, splitChildLeft, splitChildRight) = splitShardInheritance()
+
+        sut.create(
+            listOf(splitParent, splitChildLeft, splitChildRight),
+            listOf(splitChildLeft, splitChildRight),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldBeEmpty()
+    }
+
+    @Test
+    internal fun split_with_not_existing_parent() {
         val (_, splitChildLeft, splitChildRight) = splitShardInheritance()
 
         sut.create(
             listOf(splitChildLeft, splitChildRight),
-            listOf(finished.shardIdTyped()),
+            listOf(splitChildLeft, splitChildRight),
+            emptyList(),
             MAX_MAX_SHARD_COUNT
-        ).shouldBeEmpty()
+        ).shouldContainExactlyInAnyOrder(splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped())
+    }
+
+    @Test
+    internal fun split_with_not_existing_parent_and_child() {
+        val (_, _, splitChildRight) = splitShardInheritance()
+
+        sut.create(
+            listOf(splitChildRight),
+            listOf(splitChildRight),
+            emptyList(),
+            MAX_MAX_SHARD_COUNT
+        ).shouldContainExactly(splitChildRight.shardIdTyped())
     }
 
     @Test
@@ -219,6 +341,7 @@ internal class ConsumableShardIdListFactoryTest {
         val notFinished = shardOf(ShardIdGenerator.generateShardId(1))
 
         sut.create(
+            listOf(finished, notFinished),
             listOf(notFinished),
             listOf(finished.shardIdTyped()),
             MAX_MAX_SHARD_COUNT
