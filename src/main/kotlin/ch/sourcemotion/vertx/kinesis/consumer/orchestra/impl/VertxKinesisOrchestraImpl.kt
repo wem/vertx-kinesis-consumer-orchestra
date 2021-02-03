@@ -66,23 +66,24 @@ class VertxKinesisOrchestraImpl(
         deployReshardingVerticle()
         deployConsumableShardDetectorVerticle()
 
-        val orchestrationVerticleDeploymentId =
+        deployConsumerControlVerticle()
+        scheduleLastDefenseClose()
+        running = true
+
+        return this
+    }
+
+    private suspend fun deployConsumerControlVerticle() {
+        val consumerControlDeploymentId =
             runCatching {
                 vertx.deployVerticleAwait(
                     ConsumerControlVerticle::class.java.name,
                     DeploymentOptions().setConfig(JsonObject.mapFrom(options.asConsumerControlOptions()))
                 )
             }.getOrElse {
-                throw VertxKinesisConsumerOrchestraException(
-                    "Unable to start Kinesis consumer orchestra",
-                    it
-                )
+                throw VertxKinesisConsumerOrchestraException("Unable to start Kinesis consumer orchestra", it)
             }
-        subsystemDeploymentIds.add(orchestrationVerticleDeploymentId)
-        scheduleLastDefenseClose()
-        running = true
-
-        return this
+        subsystemDeploymentIds.add(consumerControlDeploymentId)
     }
 
     private fun scheduleLastDefenseClose() {
@@ -107,7 +108,7 @@ class VertxKinesisOrchestraImpl(
 
     override suspend fun closeAwait() {
         if (running) {
-            subsystemDeploymentIds.forEach { vertx.undeployAwait(it) }
+            subsystemDeploymentIds.reversed().forEach { vertx.undeployAwait(it) }
             running = false
         }
     }
@@ -140,10 +141,11 @@ class VertxKinesisOrchestraImpl(
         subsystemDeploymentIds.add(deployVerticle<RedisShardStatePersistenceServiceVerticle>(options))
     }
 
-    private suspend inline fun <reified V: Verticle> deployVerticle(options: Any) : String {
+    private suspend inline fun <reified V : Verticle> deployVerticle(options: Any): String {
         return vertx.deployVerticleAwait(
             V::class.java.name,
-            deploymentOptionsOf(config = JsonObject.mapFrom(options)))
+            deploymentOptionsOf(config = JsonObject.mapFrom(options))
+        )
     }
 
     private suspend fun deployKCL1Importer(kclImportOptions: KCLV1ImportOptions) {
