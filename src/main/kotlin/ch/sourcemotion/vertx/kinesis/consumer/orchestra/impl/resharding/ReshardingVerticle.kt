@@ -6,16 +6,16 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.Message
 import io.vertx.core.eventbus.ReplyException
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
-import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -42,7 +42,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(EventBusAddr.resharding.notification, this::onReshardingEvent)
-            .completionHandlerAwait()
+            .completion().await()
     }
 
     /**
@@ -108,11 +108,11 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         val cmd = StartConsumersCmd(listOf(shardId), ShardIteratorStrategy.EXISTING_OR_LATEST)
         vertx.eventBus()
             .runCatching {
-                requestAwait<Unit>(
+                request<Unit>(
                     EventBusAddr.consumerControl.startConsumersCmd,
                     cmd,
                     localOnlyDeliveryOptions
-                )
+                ).await()
             }
             .onFailure {
                 if (it is ReplyException) {
@@ -131,11 +131,11 @@ internal class ReshardingVerticle : CoroutineVerticle() {
     private suspend fun sendLocalStopShardConsumerCmd(shardId: ShardId) {
         vertx.eventBus()
             .runCatching {
-                requestAwait<Unit>(
+                request<Unit>(
                     EventBusAddr.consumerControl.stopConsumerCmd,
                     StopConsumerCmd(shardId),
                     localOnlyDeliveryOptions
-                )
+                ).await()
             }
             .onFailure {
                 if (it is ReplyException) {

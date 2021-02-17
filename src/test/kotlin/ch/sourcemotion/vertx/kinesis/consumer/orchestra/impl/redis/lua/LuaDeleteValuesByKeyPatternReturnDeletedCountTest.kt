@@ -6,7 +6,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Request
 import org.junit.jupiter.api.Test
@@ -24,7 +24,7 @@ class LuaDeleteValuesByKeyPatternReturnDeletedCountTest : AbstractRedisTest() {
         val key = "some-key"
         val pattern = "some-*"
 
-        redisClient.sendAwait(Request.cmd(Command.SET).arg(key).arg(value)).okResponseAsBoolean().shouldBeTrue()
+        redisClient.send(Request.cmd(Command.SET).arg(key).arg(value)).await().okResponseAsBoolean().shouldBeTrue()
 
         val luaResponse = luaExecutor.execute(luaScript, listOf(), listOf(pattern))
         luaResponse.shouldNotBeNull()
@@ -38,8 +38,8 @@ class LuaDeleteValuesByKeyPatternReturnDeletedCountTest : AbstractRedisTest() {
         val otherKey = "other-key"
         val pattern = "*-key"
 
-        redisClient.sendAwait(Request.cmd(Command.SET).arg(key).arg(value)).okResponseAsBoolean().shouldBeTrue()
-        redisClient.sendAwait(Request.cmd(Command.SET).arg(otherKey).arg(value)).okResponseAsBoolean().shouldBeTrue()
+        redisClient.send(Request.cmd(Command.SET).arg(key).arg(value)).await().okResponseAsBoolean().shouldBeTrue()
+        redisClient.send(Request.cmd(Command.SET).arg(otherKey).arg(value)).await().okResponseAsBoolean().shouldBeTrue()
 
         val luaResponse = luaExecutor.execute(luaScript,listOf(),listOf(pattern))
         luaResponse.shouldNotBeNull()

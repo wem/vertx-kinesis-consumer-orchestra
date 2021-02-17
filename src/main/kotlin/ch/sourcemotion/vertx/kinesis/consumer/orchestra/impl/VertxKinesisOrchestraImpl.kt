@@ -15,11 +15,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.Reshardi
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import io.vertx.core.*
+import io.vertx.core.impl.ContextInternal
 import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
-import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.deploymentOptionsOf
-import io.vertx.kotlin.core.undeployAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -36,50 +36,63 @@ internal class VertxKinesisOrchestraImpl(
     private var running = false
     private val subsystemDeploymentIds = ArrayList<String>()
 
-    override fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>) {
+    override fun start(): Future<VertxKinesisOrchestra> {
+        val promise = Promise.promise<VertxKinesisOrchestra>()
         CoroutineScope(vertx.dispatcher()).launch {
-            startAwait()
+            DatabindCodec.mapper().registerKinesisOrchestraModules()
+            DatabindCodec.prettyMapper().registerKinesisOrchestraModules()
+
+            OrchestraCodecs.deployCodecs(vertx.eventBus())
+
+            val awsCredentialsProvider = options.credentialsProviderSupplier.get()
+            shareCredentials(awsCredentialsProvider)
+            shareFactories(vertx)
+
+            if (options.useCustomShardStatePersistenceService.not()) {
+                deployDefaultShardStatePersistence()
+            }
+
+            val kclV1ImportOptions = options.kclV1ImportOptions
+            if (kclV1ImportOptions.isNotNull()) {
+                deployKCL1Importer(kclV1ImportOptions)
+            }
+
+            deployReshardingVerticle()
+            deployConsumableShardDetectorVerticle()
+
+            deployConsumerControlVerticle()
+            scheduleLastDefenseClose()
+            running = true
         }.invokeOnCompletion { throwable ->
-            throwable?.let { handler.handle(Future.failedFuture(it)) } ?: handler.handle(Future.succeededFuture())
+            if (throwable != null) {
+                val cause = if (throwable is VertxKinesisConsumerOrchestraException) {
+                    throwable
+                } else VertxKinesisConsumerOrchestraException("Failed to start VKCO", throwable)
+                promise.fail(cause)
+            } else {
+                promise.complete(this)
+            }
         }
+        return promise.future()
     }
 
-    override suspend fun startAwait(): VertxKinesisOrchestra {
-        DatabindCodec.mapper().registerKinesisOrchestraModules()
-        DatabindCodec.prettyMapper().registerKinesisOrchestraModules()
-
-        OrchestraCodecs.deployCodecs(vertx.eventBus())
-
-        val awsCredentialsProvider = options.credentialsProviderSupplier.get()
-        shareCredentials(awsCredentialsProvider)
-        shareFactories(vertx)
-
-        if (options.useCustomShardStatePersistenceService.not()) {
-            deployDefaultShardStatePersistence()
+    override fun close(): Future<Unit> {
+        val promise = Promise.promise<Unit>()
+        CoroutineScope(vertx.dispatcher()).launch {
+            subsystemDeploymentIds.reversed().forEach { runCatching { vertx.undeploy(it).await() } }
+            promise.complete()
         }
-
-        val kclV1ImportOptions = options.kclV1ImportOptions
-        if (kclV1ImportOptions.isNotNull()) {
-            deployKCL1Importer(kclV1ImportOptions)
-        }
-
-        deployReshardingVerticle()
-        deployConsumableShardDetectorVerticle()
-
-        deployConsumerControlVerticle()
-        scheduleLastDefenseClose()
-        running = true
-
-        return this
+        return promise.future()
     }
+
 
     private suspend fun deployConsumerControlVerticle() {
         val consumerControlDeploymentId =
             runCatching {
-                vertx.deployVerticleAwait(
+                vertx.deployVerticle(
                     ConsumerControlVerticle::class.java.name,
                     DeploymentOptions().setConfig(JsonObject.mapFrom(options.asConsumerControlOptions()))
-                )
+                ).await()
             }.getOrElse {
                 throw VertxKinesisConsumerOrchestraException("Unable to start Kinesis consumer orchestra", it)
             }
@@ -88,28 +101,15 @@ internal class VertxKinesisOrchestraImpl(
 
     private fun scheduleLastDefenseClose() {
         val context = vertx.orCreateContext
-        context.addCloseHook {
-            if (running) {
-                logger.info { "Close Kinesis consumer orchestra by hook" }
-                CoroutineScope(context.dispatcher()).launch {
-                    closeAwait()
+        if (context is ContextInternal) {
+            context.addCloseHook { closePromise ->
+                if (running) {
+                    logger.info { "Close Kinesis consumer orchestra by hook" }
+                    close()
+                        .onSuccess { closePromise.complete() }
+                        .onFailure { closePromise.fail(it) }
                 }
             }
-        }
-    }
-
-    override fun close(handler: Handler<AsyncResult<Unit>>) {
-        CoroutineScope(vertx.dispatcher()).launch {
-            closeAwait()
-        }.invokeOnCompletion { throwable ->
-            throwable?.let { handler.handle(Future.failedFuture(it)) } ?: handler.handle(Future.succeededFuture())
-        }
-    }
-
-    override suspend fun closeAwait() {
-        if (running) {
-            subsystemDeploymentIds.reversed().forEach { vertx.undeployAwait(it) }
-            running = false
         }
     }
 
@@ -142,10 +142,10 @@ internal class VertxKinesisOrchestraImpl(
     }
 
     private suspend inline fun <reified V : Verticle> deployVerticle(options: Any): String {
-        return vertx.deployVerticleAwait(
+        return vertx.deployVerticle(
             V::class.java.name,
             deploymentOptionsOf(config = JsonObject.mapFrom(options))
-        )
+        ).await()
     }
 
     private suspend fun deployKCL1Importer(kclImportOptions: KCLV1ImportOptions) {
@@ -159,10 +159,10 @@ internal class VertxKinesisOrchestraImpl(
             )
         }
 
-        vertx.deployVerticleAwait(
+        vertx.deployVerticle(
             KCLV1Importer::class.java.name,
             deploymentOptionsOf(config = JsonObject.mapFrom(kclImportOptions))
-        )
+        ).await()
 
         logger.info {
             "KCL V1 importer deployed. Will get queried if the shard iterator strategy is " +

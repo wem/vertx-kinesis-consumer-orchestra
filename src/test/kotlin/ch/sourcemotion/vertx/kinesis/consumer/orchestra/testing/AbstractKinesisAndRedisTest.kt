@@ -35,10 +35,10 @@ internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Bool
             }
 
             // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
-            var streamsAfterDeletion = kinesisClient.listStreams().await()
-            while (streamsAfterDeletion.streamNames().isNotEmpty()) {
-                streamsAfterDeletion = kinesisClient.listStreams().await()
-            }
+            var hasStreams: Boolean
+            do {
+                hasStreams = kinesisClient.listStreams().await().streamNames().isNotEmpty()
+            } while (hasStreams)
             logger.info { "Kinesis streams cleaned up" }
         } else {
             logger.info { "Kinesis stream clean up not necessary" }

@@ -3,12 +3,13 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.reactiverse.awssdk.VertxSdkClient
 import io.vertx.core.eventbus.Message
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import mu.KLogging
@@ -56,7 +57,7 @@ internal class KCLV1Importer : CoroutineVerticle() {
 
     override suspend fun start() {
         validateLeaseTableConfiguration()
-        vertx.eventBus().localConsumer(options.importAddress, ::onImportRequest).completionHandlerAwait()
+        vertx.eventBus().localConsumer(options.importAddress, ::onImportRequest).completion().await()
         logger.info { "KCL V1 importer started. Imports checkpoints by shard on demand" }
     }
 

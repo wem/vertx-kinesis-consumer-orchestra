@@ -12,6 +12,7 @@ import io.reactiverse.awssdk.VertxSdkClient
 import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -47,7 +48,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
     @AfterEach
     internal fun closeOrchestra(testContext: VertxTestContext) = asyncTest(testContext) {
-        orchestra?.closeAwait()
+        orchestra?.close()?.await()
     }
 
     @Test
@@ -86,7 +87,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
                         dynamoDbEndpoint = localStackContainer.getDynamoDBEndpointOverride()
                     )
                 )
-            ).startAwait()
+            ).start().await()
 
             eventBus.consumer<JsonArray>(RECORD_FAN_OUT_ADDR) { msg ->
                 msg.body().forEach { seqNbr ->

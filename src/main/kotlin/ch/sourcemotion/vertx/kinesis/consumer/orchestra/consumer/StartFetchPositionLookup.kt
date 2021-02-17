@@ -5,7 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import io.vertx.core.Vertx
-import io.vertx.kotlin.core.eventbus.requestAwait
+import io.vertx.kotlin.coroutines.await
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
@@ -34,7 +34,7 @@ internal class StartFetchPositionLookup(
                 } else {
                     // If the import address is defined, we try to import the sequence number to start from DynamoDB (KCL V1)
                     val importedSequenceNbr = if (options.sequenceNbrImportAddress.isNotNull()) {
-                        vertx.eventBus().requestAwait<String>(options.sequenceNbrImportAddress, "$shardId").body()
+                        vertx.eventBus().request<String>(options.sequenceNbrImportAddress, "$shardId").await().body()
                     } else null
 
                     if (importedSequenceNbr.isNotNull()) {

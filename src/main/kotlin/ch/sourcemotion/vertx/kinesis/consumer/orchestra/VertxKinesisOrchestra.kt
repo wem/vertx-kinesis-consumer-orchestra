@@ -1,8 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.VertxKinesisOrchestraImpl
-import io.vertx.core.AsyncResult
-import io.vertx.core.Handler
+import io.vertx.core.Future
 import io.vertx.core.Vertx
 
 /**
@@ -27,10 +26,6 @@ interface VertxKinesisOrchestra {
         ): VertxKinesisOrchestra  = VertxKinesisOrchestraImpl(vertx, options)
     }
 
-    fun start(handler: Handler<AsyncResult<VertxKinesisOrchestra>>)
-
-    suspend fun startAwait() : VertxKinesisOrchestra
-
-    fun close(handler: Handler<AsyncResult<Unit>>)
-    suspend fun closeAwait()
+    fun start(): Future<VertxKinesisOrchestra>
+    fun close(): Future<Unit>
 }

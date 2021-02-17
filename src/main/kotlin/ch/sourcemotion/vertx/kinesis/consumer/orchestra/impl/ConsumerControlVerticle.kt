@@ -5,6 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
@@ -14,10 +15,9 @@ import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.eventbus.Message
 import io.vertx.core.json.JsonObject
-import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.deploymentOptionsOf
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import java.time.Duration
@@ -51,9 +51,9 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
     override suspend fun start() {
         vertx.eventBus().localConsumer(EventBusAddr.consumerControl.stopConsumerCmd, ::onStopConsumerCmd)
-            .completionHandlerAwait()
+            .completion().await()
         vertx.eventBus().localConsumer(EventBusAddr.consumerControl.startConsumersCmd, ::onStartConsumersCmd)
-            .completionHandlerAwait()
+            .completion().await()
 
         notifyAboutActiveConsumers() // Directly after start there would be no consumer, so we start the detection.
         logger.debug { "Consumer control started with options \"$options\"" }
@@ -136,10 +136,10 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         consumerOptions: KinesisConsumerVerticleOptions
     ) {
         vertx.runCatching {
-            deployVerticleAwait(
+            deployVerticle(
                 consumerVerticleClass,
                 deploymentOptionsOf(config = JsonObject.mapFrom(consumerOptions).mergeIn(consumerVerticleConfig, true))
-            )
+            ).await()
         }.onSuccess { deploymentId ->
             consumerDeploymentIds[consumerOptions.shardId] = deploymentId
             logger.info { "Consumer started for stream ${options.clusterName.streamName} / shard \"${consumerOptions.shardId}\"." }

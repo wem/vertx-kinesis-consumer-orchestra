@@ -19,7 +19,7 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.eventbus.requestAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import org.junit.jupiter.api.Test
@@ -249,12 +249,12 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
 
     private suspend fun sendStartConsumersCmd(shardIds: ShardIdList) {
         val cmd = StartConsumersCmd(shardIds, ShardIteratorStrategy.EXISTING_OR_LATEST)
-        eventBus.requestAwait<Unit>(EventBusAddr.consumerControl.startConsumersCmd, cmd)
+        eventBus.request<Unit>(EventBusAddr.consumerControl.startConsumersCmd, cmd).await()
     }
 
     private suspend fun stopConsumer(shardId: ShardId) {
         val cmd = StopConsumerCmd(shardId)
-        eventBus.requestAwait<Unit>(EventBusAddr.consumerControl.stopConsumerCmd, cmd)
+        eventBus.request<Unit>(EventBusAddr.consumerControl.stopConsumerCmd, cmd).await()
     }
 
     private suspend fun deployConsumerControl(

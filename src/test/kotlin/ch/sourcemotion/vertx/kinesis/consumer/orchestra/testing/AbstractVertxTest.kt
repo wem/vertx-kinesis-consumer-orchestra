@@ -11,8 +11,8 @@ import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxExtension
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.deploymentOptionsOf
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -50,10 +50,10 @@ abstract class AbstractVertxTest {
     }
 
     suspend inline fun <reified T : Verticle> deployTestVerticle(options: Any, instances: Int = 1) =
-        vertx.deployVerticleAwait(
+        vertx.deployVerticle(
             T::class.java.name,
             deploymentOptionsOf(config = JsonObject.mapFrom(options), instances = instances)
-        )
+        ).await()
 
     protected fun asyncTest(testContext: VertxTestContext, block: suspend CoroutineScope.() -> Unit) {
         defaultTestScope.launch {

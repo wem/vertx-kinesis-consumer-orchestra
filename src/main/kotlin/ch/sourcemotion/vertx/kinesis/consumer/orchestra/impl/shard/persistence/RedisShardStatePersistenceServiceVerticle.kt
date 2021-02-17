@@ -20,9 +20,8 @@ import io.vertx.core.Future
 import io.vertx.core.Handler
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.json.JsonObject
-import io.vertx.kotlin.core.eventbus.unregisterAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
@@ -63,13 +62,13 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
 
     override suspend fun stop() {
         running = false
-        serviceRegistration?.runCatching { unregisterAwait() }
+        serviceRegistration?.runCatching { unregister().await() }
         logger.info { "Kinesis consumer orchestra Redis shard state persistence stopped" }
     }
 
     override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
             val keyWildcard = redisKeyFactory.createShardProgressFlagKeyWildcard()
-            sendAwait(Request.cmd(Command.KEYS).arg(keyWildcard))?.map {
+            send(Request.cmd(Command.KEYS).arg(keyWildcard)).await()?.map {
                 // Remove the key part before the shardid
                 extractShardId(it.toString(Charsets.UTF_8))
             } ?: emptyList()
@@ -77,16 +76,16 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
 
     override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
             val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
-            sendAwait(
+            send(
                 Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
                     .arg(serviceOptions.shardProgressExpirationMillis.toString())
-            )?.okResponseAsBoolean().isTrue()
+            ).await()?.okResponseAsBoolean().isTrue()
         }
 
     override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
             val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
-            sendAwait(Request.cmd(Command.DEL).arg(key))?.toInteger() == 1
+            send(Request.cmd(Command.DEL).arg(key)).await()?.toInteger() == 1
         }
 
     override fun saveConsumerShardSequenceNumber(
@@ -99,7 +98,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
             val sequenceNumberKey = redisKeyFactory.createShardSequenceNumberKey(shardId.asShardIdTyped())
             // We concatenate the sequence number and the iterator type to save data and complexity
             val sequenceNumberState = "${sequenceNumber}-${iteratorPosition.name}"
-            val response = sendAwait(Request.cmd(Command.SET).arg(sequenceNumberKey).arg(sequenceNumberState))
+            val response = send(Request.cmd(Command.SET).arg(sequenceNumberKey).arg(sequenceNumberState)).await()
             val result = response.okResponseAsBoolean()
             if (result.not()) {
                 throw VertxKinesisConsumerOrchestraException("Failed to save consumer shard sequence number $sequenceNumberKey")
@@ -111,7 +110,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     override fun getConsumerShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<JsonObject?>>) =
         withRetry(handler) {
             val sequenceNumberKey = redisKeyFactory.createShardSequenceNumberKey(shardId.asShardIdTyped())
-            val response = sendAwait(Request.cmd(Command.GET).arg(sequenceNumberKey))
+            val response = send(Request.cmd(Command.GET).arg(sequenceNumberKey)).await()
             val sequenceNumberStateRawValue = response?.toString()
             val sequenceNumberState = sequenceNumberStateRawValue?.let { sequenceAndIteratorType ->
                 val split = sequenceAndIteratorType.split("-")
@@ -123,21 +122,19 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     override fun deleteShardSequenceNumber(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
             val sequenceNumberKey = redisKeyFactory.createShardSequenceNumberKey(shardId.asShardIdTyped())
-            sendAwait(Request.cmd(Command.DEL).arg(sequenceNumberKey))?.toBoolean().isTrue()
+            send(Request.cmd(Command.DEL).arg(sequenceNumberKey)).await()?.toBoolean().isTrue()
         }
 
     override fun saveFinishedShard(shardId: String, expirationMillis: Long, handler: Handler<AsyncResult<Void?>>) =
         withRetry(handler) {
             val key = redisKeyFactory.createShardFinishedKey(shardId.asShardIdTyped())
-            sendAwait(
-                Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)
-            )
+            send(Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)).await()
             null
         }
 
     override fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
             val keyWildcard = redisKeyFactory.createShardFinishedRedisKeyWildcard()
-            sendAwait(Request.cmd(Command.KEYS).arg(keyWildcard))?.let { response ->
+            send(Request.cmd(Command.KEYS).arg(keyWildcard)).await()?.let { response ->
                 if (response.type() != ResponseType.MULTI) {
                     throw VertxKinesisConsumerOrchestraException(
                         "List of finished shard keys returned unexpected type"

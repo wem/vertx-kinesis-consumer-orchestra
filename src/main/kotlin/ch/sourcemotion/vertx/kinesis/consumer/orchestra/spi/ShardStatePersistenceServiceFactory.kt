@@ -1,5 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import io.vertx.core.AsyncResult
 import io.vertx.core.Future
 import io.vertx.core.Handler
@@ -7,7 +8,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.MessageConsumer
 import io.vertx.core.json.JsonObject
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.awaitResult
 import io.vertx.serviceproxy.ServiceBinder
 import io.vertx.serviceproxy.ServiceProxyBuilder
@@ -21,7 +22,7 @@ object ShardStatePersistenceServiceFactory {
     suspend fun expose(vertx: Vertx, serviceInstance: ShardStatePersistenceService): MessageConsumer<JsonObject> {
         return awaitResult<MessageConsumer<JsonObject>> {
             expose(vertx, serviceInstance, it)
-        }.also { it.completionHandlerAwait() }
+        }.also { it.completion().await() }
     }
 
     fun expose(

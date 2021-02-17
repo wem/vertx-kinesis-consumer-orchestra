@@ -3,14 +3,13 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.21"
-    kotlin("kapt") version "1.4.21"
+    kotlin("jvm") version "1.4.30"
+    kotlin("kapt") version "1.4.30"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
 }
 
 repositories {
-    mavenLocal()
     jcenter()
 }
 
@@ -102,16 +101,13 @@ fun awsSdk(module: String) = "software.amazon.awssdk:$module"
 fun libVersion(suffix: String) = property("version.$suffix")
 
 configure<JavaPluginConvention> {
-    sourceCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_11
 }
 
 tasks {
     withType<KotlinCompile> {
-        kotlinOptions.jvmTarget = "1.8"
-        kotlinOptions.freeCompilerArgs = kotlinOptions.freeCompilerArgs.toMutableList().apply {
-            add("-Xuse-experimental=kotlin.contracts.ExperimentalContracts")
-            add("-Xinline-classes")
-        }
+        kotlinOptions.jvmTarget = "11"
+        kotlinOptions.freeCompilerArgs += listOf("-Xuse-experimental=kotlin.contracts.ExperimentalContracts", "-Xinline-classes")
     }
     withType<Test> {
         useJUnitPlatform()

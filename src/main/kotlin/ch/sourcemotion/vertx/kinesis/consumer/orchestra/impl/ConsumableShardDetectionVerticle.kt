@@ -3,15 +3,15 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import io.vertx.core.eventbus.Message
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
-import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -56,7 +56,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     override suspend fun start() {
         vertx.eventBus().localConsumer(
             EventBusAddr.detection.consumedShardCountNotification, ::onConsumedShardCountNotification
-        ).completionHandlerAwait()
+        ).completion().await()
         logger.debug { "Consumable shard detector verticle started" }
     }
 
@@ -115,9 +115,9 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
                 }
 
                 val cmd = StartConsumersCmd(shardIdListToConsume, iteratorStrategy)
-                vertx.eventBus().requestAwait<Unit>(
+                vertx.eventBus().request<Unit>(
                     EventBusAddr.consumerControl.startConsumersCmd, cmd, localOnlyDeliveryOptions
-                )
+                ).await()
             } else {
                 logger.debug { "Consumable shard detection did run, but there was no consumable shard to consume" }
             }

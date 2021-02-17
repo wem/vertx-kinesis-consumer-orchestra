@@ -5,6 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
@@ -16,8 +17,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
-import io.vertx.kotlin.core.eventbus.requestAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -49,13 +49,13 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     msg.ack()
                     checkpoint.flag()
                 }
-            }.completionHandlerAwait()
+            }.completion().await()
 
             parentShardIds.forEach { parentShardId ->
-                eventBus.requestAwait<Unit>(
+                eventBus.request<Unit>(
                     EventBusAddr.resharding.notification,
                     MergeReshardingEvent(parentShardId, childShardId)
-                )
+                ).await()
             }
         }
 
@@ -81,14 +81,14 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                 }
             }
 
-            eventBus.requestAwait<Unit>(
+            eventBus.request<Unit>(
                 EventBusAddr.resharding.notification,
                 MergeReshardingEvent(parentShardIds.first(), childShardId)
-            )
-            eventBus.requestAwait<Unit>(
+            ).await()
+            eventBus.request<Unit>(
                 EventBusAddr.resharding.notification,
                 MergeReshardingEvent(parentShardIds.last(), childShardId)
-            )
+            ).await()
         }
 
     /**
@@ -110,7 +110,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     msg.ack()
                     checkpoint.flag()
                 }
-            }.completionHandlerAwait()
+            }.completion().await()
 
             eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
                 val shardId = msg.body().shouldContainOneShardId()
@@ -125,12 +125,12 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     msg.ack()
                     checkpoint.flag()
                 }
-            }.completionHandlerAwait()
+            }.completion().await()
 
-            eventBus.requestAwait<Unit>(
+            eventBus.request<Unit>(
                 EventBusAddr.resharding.notification,
                 SplitReshardingEvent(parentShardId, childShardIds)
-            )
+            ).await()
         }
 
     private suspend fun createStreamAndSplit(): Pair<List<ShardId>, ShardId> {

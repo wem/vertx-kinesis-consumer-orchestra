@@ -15,7 +15,7 @@ import io.kotest.matchers.date.shouldBeBetween
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.eventbus.requestAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Test
@@ -453,7 +453,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         }
 
     private suspend fun sendShardsConsumedCountNotification(consumedShards: Int) {
-        eventBus.requestAwait<Unit>(EventBusAddr.detection.consumedShardCountNotification, consumedShards)
+        eventBus.request<Unit>(EventBusAddr.detection.consumedShardCountNotification, consumedShards).await()
     }
 
     private suspend fun deployConsumableShardDetectorVerticle(

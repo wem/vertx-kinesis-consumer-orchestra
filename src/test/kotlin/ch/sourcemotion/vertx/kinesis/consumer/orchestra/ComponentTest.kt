@@ -3,12 +3,13 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ComponentTest.FanoutMessage
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.kotest.matchers.shouldBe
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import mu.KLogging
 import org.junit.jupiter.api.AfterEach
@@ -46,12 +47,12 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
         vertx.eventBus().registerDefaultCodec(FanoutMessage::class.java, LocalCodec("fanout-message-code"))
         kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
-        orchestra = VertxKinesisOrchestra.create(vertx, orchestraOptions).startAwait()
+        orchestra = VertxKinesisOrchestra.create(vertx, orchestraOptions).start().await()
     }
 
     @AfterEach
     internal fun closeOrchestra(testContext: VertxTestContext) = asyncTest(testContext) {
-        orchestra?.closeAwait()
+        orchestra?.close()?.await()
     }
 
     @Test
@@ -62,7 +63,7 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
                 logger.info { "${fanoutMessage.recordCount} records received" }
                 repeat(fanoutMessage.recordCount) { checkpoint.flag() }
                 testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-            }.completionHandlerAwait()
+            }.completion().await()
 
             // We wait until consumer are deployed, so latest shard iterator will work
             delay(orchestraOptions.loadConfiguration.notConsumedShardDetectionInterval * 2)

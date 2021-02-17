@@ -6,7 +6,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTes
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Request
 import kotlinx.coroutines.delay
@@ -87,8 +87,8 @@ internal class ConsumerDeploymentLockTest : AbstractRedisTest() {
         }
     }
 
-    private suspend fun deploymentLockAcquired() = redisClient.sendAwait(
+    private suspend fun deploymentLockAcquired() = redisClient.send(
         Request.cmd(Command.GET)
             .arg(redisKeyFactory.createDeploymentLockKey())
-    )?.toInteger() == 1
+    ).await()?.toInteger() == 1
 }

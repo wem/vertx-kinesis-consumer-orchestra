@@ -14,7 +14,7 @@ import io.kotest.matchers.shouldBe
 import io.vertx.core.DeploymentOptions
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.AfterEach
@@ -47,16 +47,16 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
             redisHeimdallOptions.apply { redisOptions.maxPoolSize = 8 },
             DEFAULT_TEST_EXPIRATION_MILLIS
         )
-        deploymentId = vertx.deployVerticleAwait(
+        deploymentId = vertx.deployVerticle(
             RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
                 JsonObject.mapFrom(options)
             )
-        )
+        ).await()
     }
 
     @AfterEach
     internal fun undeployShardPersistenceVerticle(testContext: VertxTestContext) {
-        deploymentId?.let { vertx.undeploy(it, testContext.completing()) }
+        deploymentId?.let { vertx.undeploy(it, testContext.succeedingThenComplete()) }
     }
 
     @Test

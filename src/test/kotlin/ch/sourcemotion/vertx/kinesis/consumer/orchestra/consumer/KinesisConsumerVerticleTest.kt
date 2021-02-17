@@ -7,6 +7,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterNam
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeReshardingEvent
@@ -23,9 +24,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.ReplyException
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.eventbus.completionHandlerAwait
-import io.vertx.kotlin.core.eventbus.requestAwait
-import io.vertx.kotlin.core.undeployAwait
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
@@ -84,7 +83,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 }
                 logger.info { "Received $receivedRecords records" }
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(createKinesisConsumerVerticleConfig(streamDescription.getFirstShardId()))
 
@@ -117,7 +116,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                     msg.ack()
                 }
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(
                 createKinesisConsumerVerticleConfig(
@@ -148,7 +147,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 msg.fail(0, "")
 
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(
                 createKinesisConsumerVerticleConfig(
@@ -187,7 +186,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 msg.replyConsumeRecordFailedIgnore(record)
 
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(
                 createKinesisConsumerVerticleConfig(
@@ -234,7 +233,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                 msg.fail(0, "Test failure")
 
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(
                 createKinesisConsumerVerticleConfig(
@@ -337,7 +336,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                     logger.info { "Received first bunch of records. Restart consumer" }
                     defaultTestScope.launch {
                         testContext.verify { consumerDeploymentId.shouldNotBeNull() }
-                        vertx.undeployAwait(consumerDeploymentId!!)
+                        vertx.undeploy(consumerDeploymentId!!).await()
 
                         consumerRoundStarter()
 
@@ -355,7 +354,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
                     }
                 }
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             consumerRoundStarter()
 
@@ -371,7 +370,7 @@ internal class KinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
         shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
         delay(shardProgressExpirationMillis * 2)
         shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
-        vertx.undeployAwait(deploymentId)
+        vertx.undeploy(deploymentId).await()
         shardStatePersistenceService.getShardIdsInProgress().shouldBeEmpty()
     }
 
@@ -407,12 +406,12 @@ class TestConsumerVerticle : AbstractKinesisConsumerCoroutineVerticle() {
     override suspend fun onRecordsAsync(records: List<Record>) {
         runCatching {
             records.forEach { record ->
-                vertx.eventBus().requestAwait<Unit>(
+                vertx.eventBus().request<Unit>(
                     RECORD_SEND_ADDR,
                     record,
                     // Ensure send will not timeout, even on longer running tests
                     DeliveryOptions().setSendTimeout(Duration.ofMinutes(10).toMillis())
-                )
+                ).await()
             }
         }.exceptionOrNull()?.let { throwable ->
             throw if (throwable is ReplyException && throwable.isKinesisConsumerException()) {

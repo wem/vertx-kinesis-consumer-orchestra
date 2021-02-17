@@ -13,7 +13,7 @@ import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import eu.rekawek.toxiproxy.model.ToxicDirection
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.RedisOptions
@@ -78,7 +78,7 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
 
     private suspend fun flushAllOnRedis() {
         val tempClient = RedisHeimdall.create(vertx, redisHeimdallOptions)
-        val flushResponseResult = runCatching { tempClient.sendAwait(Request.cmd(Command.FLUSHALL)) }
+        val flushResponseResult = runCatching { tempClient.send(Request.cmd(Command.FLUSHALL)).await() }
         tempClient.close()
         val flushResponse = flushResponseResult.getOrThrow()
         if (flushResponse.isNotNull() && flushResponse.toString() == "OK") {

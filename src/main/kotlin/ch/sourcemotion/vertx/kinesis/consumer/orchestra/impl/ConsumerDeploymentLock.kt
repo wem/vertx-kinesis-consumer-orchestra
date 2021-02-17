@@ -6,7 +6,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoo
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.DefaultLuaScriptDescription
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
-import io.vertx.kotlin.redis.client.sendAwait
+import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
@@ -62,5 +62,5 @@ internal class ConsumerDeploymentLock(
     }
 
     private suspend fun releaseLock(deploymentKey: String) =
-        redis.sendAwait(Request.cmd(Command.DEL).arg(deploymentKey))?.toInteger() == 1
+        redis.send(Request.cmd(Command.DEL).arg(deploymentKey)).await()?.toInteger() == 1
 }
