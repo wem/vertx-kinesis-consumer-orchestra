@@ -68,3 +68,8 @@ This will ensure that any verticle is available as long as it's needed.
 #### Cleanup
 - Change modifier of some classes to internal.
 - Remove unused code.
+
+## [1.0.0]
+### Improved
+#### Vert.x 4
+Migration to Vert.x 4, Java 11 and bump Java to 11.
