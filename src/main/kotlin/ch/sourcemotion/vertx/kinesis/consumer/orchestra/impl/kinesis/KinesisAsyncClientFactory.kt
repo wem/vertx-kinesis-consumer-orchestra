@@ -8,6 +8,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.Aws
 import io.reactiverse.awssdk.VertxSdkClient
 import io.vertx.core.Context
 import io.vertx.core.Vertx
+import io.vertx.core.http.HttpClientOptions
 import io.vertx.core.shareddata.Shareable
 import mu.KLogging
 import software.amazon.awssdk.regions.Region
@@ -22,6 +23,7 @@ internal class KinesisAsyncClientFactory(
     private val vertx: Vertx,
     private val region: String,
     private val kinesisEndpoint: String?,
+    private val httpClientOptions: HttpClientOptions,
     private val awsClientMetricOptions: AwsClientMetricOptions? = null
 ) : Shareable, KLogging() {
 
@@ -44,13 +46,14 @@ internal class KinesisAsyncClientFactory(
         val builder = KinesisAsyncClient.builder()
             .region(Region.of(region))
             .credentialsProvider(awsCredentialsProvider)
-            .overrideConfiguration{ c ->
-                AwsClientMetricFactory.create(vertx, awsClientMetricOptions)?.let { metricPublisher -> c.addMetricPublisher(metricPublisher) }
+            .overrideConfiguration { c ->
+                AwsClientMetricFactory.create(vertx, awsClientMetricOptions)
+                    ?.let { metricPublisher -> c.addMetricPublisher(metricPublisher) }
             }
 
         kinesisEndpoint?.let { builder.endpointOverride(URI(it)) }
 
-        return VertxSdkClient.withVertx(builder, context).build().also {
+        return VertxSdkClient.withVertx(builder, httpClientOptions, context).build().also {
             context.put(CLIENT_CONTEXT_REF, it)
         }
     }

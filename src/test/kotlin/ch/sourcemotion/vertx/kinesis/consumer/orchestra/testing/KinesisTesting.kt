@@ -1,5 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
@@ -18,7 +19,12 @@ import java.math.BigInteger
 
 fun Vertx.shareKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
     val kinesisAsyncClientFactory =
-        KinesisAsyncClientFactory(this, Localstack.region.id(), kinesisEndpointOverride)
+        KinesisAsyncClientFactory(
+            this,
+            Localstack.region.id(),
+            kinesisEndpointOverride,
+            VertxKinesisOrchestraOptions.DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS
+        )
     SharedData.shareInstance(this, kinesisAsyncClientFactory, KinesisAsyncClientFactory.SHARED_DATA_REF)
 }
 

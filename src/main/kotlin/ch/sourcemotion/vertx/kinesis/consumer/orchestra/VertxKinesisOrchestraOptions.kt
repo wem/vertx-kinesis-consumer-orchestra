@@ -15,11 +15,13 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.Aws
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.vertx.core.http.HttpClientOptions
 import io.vertx.core.json.JsonObject
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 import java.util.function.Supplier
 
 data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
@@ -66,6 +68,15 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Alternative kinesis endpoint.
      */
     val kinesisEndpoint: String? = null,
+
+    /**
+     * Options for the http client to access Kinesis.
+     * Default as defined by io.reactiverse.awssdk.VertxNioAsyncHttpClient,
+     * software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient and software.amazon.awssdk.http.SdkHttpConfigurationOption
+     *
+     * https://github.com/reactiverse/aws-sdk/issues/40
+     */
+    val kinesisHttpClientOptions: HttpClientOptions = DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS,
 
     /**
      * Vert.x Redis options. Used for shard state persistence (sequence number position of consuming shard) and
@@ -170,6 +181,11 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
 
         val DEFAULT_REGION: Region = Region.EU_WEST_1
+        val DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS: HttpClientOptions = HttpClientOptions().setSsl(true)
+            .setKeepAlive(true)
+            .setKeepAliveTimeout(30) // https://github.com/reactiverse/aws-sdk/issues/40
+            .setIdleTimeout(5).setIdleTimeoutUnit(TimeUnit.SECONDS)
+            .setConnectTimeout(10000)
     }
 }
 
