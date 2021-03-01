@@ -68,3 +68,8 @@ This will ensure that any verticle is available as long as it's needed.
 #### Cleanup
 - Change modifier of some classes to internal.
 - Remove unused code.
+
+## [0.8.3]
+### Improved
+#### #25 Parameterizable HttpClientOptions for Vert.x AWS SDK
+It's now possible to configure custom Vert.x http client options to access Kinesis. 
