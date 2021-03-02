@@ -73,3 +73,8 @@ This will ensure that any verticle is available as long as it's needed.
 ### Improved
 #### Vert.x 4
 Migration to Vert.x 4, Java 11 and bump Java to 11.
+
+## [1.0.1]
+### Improved
+#### #25 Parameterizable HttpClientOptions for Vert.x AWS SDK
+It's now possible to configure custom Vert.x http client options to access Kinesis. 
