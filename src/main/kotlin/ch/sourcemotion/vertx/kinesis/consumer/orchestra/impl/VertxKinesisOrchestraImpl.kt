@@ -185,7 +185,13 @@ internal class VertxKinesisOrchestraImpl(
     private fun shareFactories(vertx: Vertx) {
         SharedData.shareInstance(
             vertx,
-            KinesisAsyncClientFactory(vertx, options.region, options.kinesisEndpoint, options.awsClientMetricOptions),
+            KinesisAsyncClientFactory(
+                vertx,
+                options.region,
+                options.kinesisEndpoint,
+                options.kinesisHttpClientOptions,
+                options.awsClientMetricOptions
+            ),
             KinesisAsyncClientFactory.SHARED_DATA_REF
         )
     }
