@@ -4,16 +4,16 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.FetchPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
 import kotlinx.coroutines.future.await
-import kotlinx.coroutines.launch
+import mu.KLogger
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ExpiredIteratorException
 import software.amazon.awssdk.services.kinesis.model.GetRecordsResponse
 import software.amazon.awssdk.services.kinesis.model.ProvisionedThroughputExceededException
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 internal class DynamicRecordFetcher(
     options: FetcherOptions,
@@ -25,13 +25,15 @@ internal class DynamicRecordFetcher(
 ) {
     private companion object : KLogging()
 
-    private val stream = RecordBatchStream(options.recordsPreFetchLimit)
+    private val stream = RecordBatchStream(options.recordsPreFetchLimit, streamName, shardId)
     private val streamWriter = stream.writer()
     val streamReader = stream.reader()
 
+    private val loggingContext = DynamicFetcherLoggingContext(logger, shardId, false)
     private val dynamicLimit = options.dynamicLimitAdjustment.enabled
     private val recordsFetchInterval = options.recordsFetchIntervalMillis
-    private val job = scope.launch(start = CoroutineStart.LAZY) { fetch() }
+    private val job = scope.launch(start = CoroutineStart.LAZY,context = loggingContext) { fetch() }
+
     var running = false
         private set
     private val limitAdjustment = GetRecordsLimitAdjustment.withOptions(streamName, shardId, options)
@@ -89,7 +91,9 @@ internal class DynamicRecordFetcher(
         return kinesis.getRecords {
             it.limit(limitAdjustment.calculateNextLimit()).shardIterator("${currentPosition.iterator}")
         }.runCatching {
+            loggingContext.requestInProgress = true
             val response = await()
+            loggingContext.requestInProgress = false
             Pair(response, System.currentTimeMillis() - startTime)
         }.getOrElse {
             when (it) {
@@ -122,3 +126,27 @@ internal class DynamicRecordFetcher(
         }
     }
 }
+
+private class DynamicFetcherLoggingContext(
+    private val logger: KLogger,
+    private val shardId: ShardId,
+    var requestInProgress: Boolean
+) : ThreadContextElement<Unit>, AbstractCoroutineContextElement(Key) {
+    private companion object Key : CoroutineContext.Key<DynamicFetcherLoggingContext>
+    override fun updateThreadContext(context: CoroutineContext) {
+        if (requestInProgress) {
+            logger.info("Dynamic fetcher \"$shardId\" resumed / started from request")
+        } else {
+            logger.info("Dynamic fetcher \"$shardId\" resumed / started from write records to channel")
+        }
+    }
+
+    override fun restoreThreadContext(context: CoroutineContext, oldState: Unit) {
+        if (requestInProgress) {
+            logger.info("Dynamic fetcher \"$shardId\" suspend because request in progress")
+        } else {
+            logger.info("Dynamic fetcher \"$shardId\" suspend by write records to channel")
+        }
+    }
+}
+

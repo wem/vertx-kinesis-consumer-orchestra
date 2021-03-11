@@ -16,12 +16,16 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import kotlinx.coroutines.ThreadContextElement
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import mu.KLogger
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
 import kotlin.LazyThreadSafetyMode.NONE
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -127,7 +131,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         var previousPosition: FetchPosition = startPosition
         fetcher.start()
         running = true
-        launch {
+        launch(ConsumerLoggingContext(logger, options.shardId)) {
             while (running) {
                 runCatching {
                     recordBatchReader.readFromStream()
@@ -261,4 +265,18 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private val consumerInfo: String
         get() = "{ cluster: \"${options.clusterName}\", shard: \"${shardId}\", verticle: \"${this::class.java.name}\" }"
+}
+
+private class ConsumerLoggingContext(
+    private val logger: KLogger,
+    private val shardId: ShardId
+) : ThreadContextElement<Unit>, AbstractCoroutineContextElement(Key) {
+    private companion object Key : CoroutineContext.Key<ConsumerLoggingContext>
+    override fun updateThreadContext(context: CoroutineContext) {
+        logger.info("Kinesis consumer on shard \"$shardId\" resumed / started")
+    }
+
+    override fun restoreThreadContext(context: CoroutineContext, oldState: Unit) {
+        logger.info("Kinesis consumer on shard \"$shardId\" suspend")
+    }
 }

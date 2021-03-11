@@ -4,6 +4,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIterator
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractVertxTest
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
 import com.nhaarman.mockitokotlin2.doReturn
 import com.nhaarman.mockitokotlin2.mock
 import io.kotest.assertions.throwables.shouldThrow
@@ -29,19 +30,21 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     private companion object {
         const val PREFETCH_LIMIT = 10
+        const val streamName = "stream"
+        val shardId = ShardIdGenerator.generateShardId(0)
     }
 
     @Test
     internal fun multiple_writers_will_fail() {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
         stream.writer()
         shouldThrow<UnsupportedOperationException> { stream.writer() }
     }
 
     @Test
     internal fun writer_suspend_on_pre_fetch_limit_exceeded(testContext: VertxTestContext) = testContext.async {
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
 
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
         val writer = stream.writer()
         val reader = stream.reader()
         val response = getRecordResponse(recordCount = PREFETCH_LIMIT + 1)
@@ -62,7 +65,7 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     @Test
     internal fun reader_suspended_when_no_responses_available(testContext: VertxTestContext) = testContext.async {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
         val writer = stream.writer()
         val reader = stream.reader()
 
@@ -86,7 +89,7 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     @Test
     internal fun write_read_write_read(testContext: VertxTestContext) = testContext.async {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
         val writer = stream.writer()
         val reader = stream.reader()
         val expectedBatchSize = 9
@@ -97,7 +100,7 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     @Test
     internal fun next_shard_iterator_null_first_response(testContext: VertxTestContext) = testContext.async {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
         val writer = stream.writer()
         val reader = stream.reader()
         val response = getRecordResponse(null, Random.nextLong(), 0)
@@ -109,7 +112,7 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     @Test
     internal fun reset_stream(testContext: VertxTestContext) = testContext.async {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
+        val stream = RecordBatchStream(PREFETCH_LIMIT, streamName, shardId)
         val writer = stream.writer()
         val reader = stream.reader()
 
@@ -179,5 +182,23 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     private fun recordData(idx: Int) = SdkBytes.fromUtf8String("record-$idx")
 }
+
+//private class CheckpointContext(
+//    private val suspendCheckpoint: Checkpoint? = null,
+//    private val resumeCheckpoint: Checkpoint? = null,
+//) : ThreadContextElement<Unit>, AbstractCoroutineContextElement(Key) {
+//    private companion object Key : CoroutineContext.Key<CheckpointContext>
+//
+//    /**
+//     * Called when coroutine did resume / start.
+//     */
+//    override fun updateThreadContext(context: CoroutineContext) {
+//        resumeCheckpoint?.flag()
+//    }
+//
+//    override fun restoreThreadContext(context: CoroutineContext, oldState: Unit) {
+//        suspendCheckpoint?.flag()
+//    }
+//}
 
 
