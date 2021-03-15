@@ -5,6 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIterator
 import kotlinx.coroutines.channels.Channel
 import software.amazon.awssdk.services.kinesis.model.GetRecordsResponse
 import software.amazon.awssdk.services.kinesis.model.Record
+import software.amazon.awssdk.services.kinesis.model.SubscribeToShardEvent
 
 internal data class RecordBatch(
     val records: List<Record>,
@@ -34,8 +35,32 @@ internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
                         )
                     )
                 } else {
-                    response.records().map { ResponseEntry(it, ShardIterator.of(response.nextShardIterator()), response.millisBehindLatest()) }
+                    response.records().map {
+                        ResponseEntry(it, ShardIterator.of(response.nextShardIterator()), response.millisBehindLatest())
+                    }
                 }.forEach { responseEntryChannel.send(it) }
+            }
+
+            override suspend fun writeToStream(event: SubscribeToShardEvent) {
+                if (event.records().isEmpty()) {
+                    listOf(
+                        ResponseEntry(
+                            // On enhanced fan out we have no shard iterator, but sequence number for continuation.
+                            null, ShardIterator.of(event.continuationSequenceNumber()), event.millisBehindLatest()
+                        )
+                    )
+                } else {
+                    event.records().map {
+                        ResponseEntry(
+                            it,
+                            // On enhanced fan out we have no shard iterator, but sequence number for continuation.
+                            ShardIterator.of(event.continuationSequenceNumber()),
+                            event.millisBehindLatest()
+                        )
+                    }
+                }.forEach {
+                    responseEntryChannel.send(it)
+                }
             }
 
             override fun resetStream() {
@@ -56,7 +81,7 @@ internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
             val records = entries.mapNotNull { it.record }
             val latestSequenceNumber = if (records.isNotEmpty()) {
                 SequenceNumber.after(records.last().sequenceNumber())
-            }else null
+            } else null
             return RecordBatch(records, latestEntry.shardIterator, latestSequenceNumber, latestEntry.millisBehindLatest)
         }
     }
@@ -72,6 +97,7 @@ private data class ResponseEntry(val record: Record?, val shardIterator: ShardIt
 
 internal interface RecordBatchStreamWriter {
     suspend fun writeToStream(response: GetRecordsResponse)
+    suspend fun writeToStream(event: SubscribeToShardEvent)
     fun resetStream()
 }
 

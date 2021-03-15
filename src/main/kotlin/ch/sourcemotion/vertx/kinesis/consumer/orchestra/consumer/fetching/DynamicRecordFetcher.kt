@@ -22,12 +22,12 @@ internal class DynamicRecordFetcher(
     private val streamName: String,
     private val shardId: ShardId,
     private val kinesis: KinesisAsyncClient
-) {
+) : Fetcher {
     private companion object : KLogging()
 
     private val stream = RecordBatchStream(options.recordsPreFetchLimit)
     private val streamWriter = stream.writer()
-    val streamReader = stream.reader()
+    override val streamReader = stream.reader()
 
     private val dynamicLimit = options.dynamicLimitAdjustment.enabled
     private val recordsFetchInterval = options.recordsFetchIntervalMillis
@@ -40,18 +40,18 @@ internal class DynamicRecordFetcher(
     private var skipNextResponse = false
 
 
-    fun start() = this.also {
+    override suspend fun start() {
         logger.info { "Dynamic limit to consume records from Kinesis enabled = \"$dynamicLimit\"" }
         running = true
         job.start()
     }
 
-    suspend fun stop() {
+    override suspend fun stop() {
         running = false
         job.join()
     }
 
-    fun resetTo(fetchPosition: FetchPosition) {
+    override fun resetTo(fetchPosition: FetchPosition) {
         streamWriter.resetStream()
         skipNextResponse = true
         currentPosition = fetchPosition

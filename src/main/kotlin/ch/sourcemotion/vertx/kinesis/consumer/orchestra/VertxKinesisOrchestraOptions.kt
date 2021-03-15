@@ -1,5 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_ENABLED
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP
@@ -8,7 +10,9 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NO_EVENTS_RECEIVED_THRESHOLD_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
@@ -180,6 +184,11 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
 
+        const val DEFAULT_NO_EVENTS_RECEIVED_THRESHOLD_MILLIS = 5000L
+        const val DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS = 6000L
+        const val DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS = 2000L
+        const val DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL = 500L
+
         val DEFAULT_REGION: Region = Region.EU_WEST_1
         val DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS: HttpClientOptions = HttpClientOptions().setSsl(true)
             .setKeepAlive(true)
@@ -292,7 +301,14 @@ data class FetcherOptions(
      * Applied to [software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest.limit]
      */
     val getRecordsLimit: Int = DEFAULT_GET_RECORDS_LIMIT,
-    val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment()
+
+    val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment(),
+
+    /**
+     * Optional options to use enhanced fan out. If this options are set, all other options of [FetcherOptions] are not
+     * considered except [recordsPreFetchLimit].
+     */
+    val enhancedFanOut: EnhancedFanOutOptions? = null
 ) {
     init {
         require(recordsFetchIntervalMillis > 0) { "recordsFetchInterval must be a positive duration. But is \"$recordsFetchIntervalMillis\"" }
@@ -300,6 +316,28 @@ data class FetcherOptions(
         require(getRecordsLimit.isPositive()) { "getRecordsLimit must be a positive integer. But is \"$getRecordsLimit\"" }
     }
 }
+
+data class EnhancedFanOutOptions(
+    val streamArn: String,
+    /**
+     * Duration threshold if the fetcher receives no events within, a re-subscription will happen.
+     */
+    val noEventReceivedThresholdMillis: Long = DEFAULT_NO_EVENTS_RECEIVED_THRESHOLD_MILLIS,
+    /**
+     * Enhanced fan out subscription can only happen each 5 second per consumer per shard. Some times Kinesis will respond
+     * failures a short time after 5 seconds. So this value is customizable.
+     */
+    val minResubscribeIntervalMillis: Long = DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS,
+    /**
+     * Retry interval for register consumer / list consumers if the requests did fail because of exceed limit or
+     * resource is in use.
+     */
+    val consumerRegistrationRetryIntervalMillis: Long = DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS,
+    /**
+     * Interval to check if the consumer is in active state and is ready for subscription.
+     */
+    val consumerActiveCheckInterval: Long = DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL
+)
 
 data class DynamicLimitAdjustment(
 
