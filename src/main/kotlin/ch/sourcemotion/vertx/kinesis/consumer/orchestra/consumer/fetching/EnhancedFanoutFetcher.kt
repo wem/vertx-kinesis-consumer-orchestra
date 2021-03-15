@@ -274,7 +274,8 @@ private class EventSubscriber(
                 }
             }
         } else {
-            logger.debug { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"" }
+            logger.info { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"" }
+            subscription.request(1)
         }
     }
 
