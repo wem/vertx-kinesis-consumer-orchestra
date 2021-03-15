@@ -75,10 +75,8 @@ internal class EnhancedFanoutFetcher(
                         val job = subscribeToShard(subscribeRequest)
                         job.await()
                     }.onSuccess {
-                        cancelSubscription()
                         logger.info { "Enhanced fan out subscription done on stream \"$streamName\" and shard \"$shardId\". Will resubscribe" }
                     }.onFailure {
-                        cancelSubscription()
                         if (it is CancellationException
                             || (it is CompletionException && it.cause is CancellationException)
                         ) {
@@ -145,10 +143,8 @@ internal class EnhancedFanoutFetcher(
         val responseHandler = SubscribeToShardResponseHandler.builder()
             .onError { cause -> logger.warn(cause) { "Enhanced fan out subscription on stream \"$streamName\" and shard \"$shardId\" failed" } }
             .subscriber(Supplier {
-                EventSubscriber(
-                    vertx, scope, streamName, shardId, streamWriter, currentSequenceNumberRef,
-                    enhancedOptions.noEventReceivedThresholdMillis, ::cancelSubscription
-                ).also { this.subscriptionControl = it }
+                EventSubscriber(scope, streamName, shardId, streamWriter, currentSequenceNumberRef)
+                    .also { this.subscriptionControl = it }
             })
             .build()
 
@@ -240,44 +236,31 @@ internal class EnhancedFanoutFetcher(
 }
 
 private class EventSubscriber(
-    private val vertx: Vertx,
     private val scope: CoroutineScope,
     private val streamName: String,
     private val shardId: ShardId,
     private val streamWriter: RecordBatchStreamWriter,
     private val currentSequenceNumberRef: SequenceNumberRef,
-    private val noEventReceivedThresholdMillis: Long,
-    private val stop: () -> Unit
 ) : Subscriber<SubscribeToShardEventStream>, SubscriptionControl {
 
     private companion object : KLogging()
 
     private lateinit var subscription: Subscription
 
-    private var canceled = false
-    private var noEventsReceivedTimerId: Long? = null
-    private var latestResponseTimestamp: Long = 0
+    private var finished = false
+    private var firstRecordReceived = false
 
     override fun onSubscribe(s: Subscription) {
         this.subscription = s
         subscription.request(1)
         logger.info { "Event subscriber started on stream \"$streamName\" and shard \"$shardId\". Await events" }
-        noEventsReceivedTimerId = vertx.setPeriodic(noEventReceivedThresholdMillis) {
-            val now = System.currentTimeMillis()
-            val millisSinceLatestEvents = now - latestResponseTimestamp
-            logger.debug { "No events received checker -> Latest events received \"$millisSinceLatestEvents\" millis ago on stream \"$streamName\" and shard \"$shardId\"" }
-            if (millisSinceLatestEvents > noEventReceivedThresholdMillis) {
-                logger.info { "Try to renew subscription on stream \"$streamName\" and shard \"$shardId\", because no events received within \"$noEventReceivedThresholdMillis\" millis" }
-                stop()
-            }
-        }
     }
 
     override fun onNext(event: SubscribeToShardEventStream) {
-        if (latestResponseTimestamp == 0L) {
+        if (firstRecordReceived.not()) {
             logger.info { "Begin to receive events on stream \"$streamName\" and shard \"$shardId\"" }
+            firstRecordReceived = true
         }
-        latestResponseTimestamp = System.currentTimeMillis()
         if (event is SubscribeToShardEvent) {
             currentSequenceNumberRef.value =
                 SequenceNumber(event.continuationSequenceNumber(), SequenceNumberIteratorPosition.AFTER)
@@ -286,7 +269,9 @@ private class EventSubscriber(
                 if (it != null) {
                     logger.warn(it) { "Unable to write event on stream \"$streamName\" and shard \"$shardId\" to record stream \"$event\"" }
                 }
-                subscription.request(1)
+                if (finished.not()) {
+                    subscription.request(1)
+                }
             }
         } else {
             logger.debug { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"" }
@@ -295,25 +280,18 @@ private class EventSubscriber(
 
     override fun onError(t: Throwable) {
         logger.warn(t) { "Error during streaming on stream \"$streamName\" and shard \"$shardId\". Will cancel subscription" }
-        stop()
     }
 
     override fun onComplete() {
+        finished = true
         logger.info { "This subscription on stream \"$streamName\" and shard \"$shardId\" did end" }
-        stop()
     }
 
     override fun cancel() {
-        cancelNoEventsReceivedCheckTimer()
-        if (canceled.not()) {
-            canceled = true
+        if (finished.not()) {
+            finished = true
             subscription.runCatching { cancel() }
         }
-    }
-
-    private fun cancelNoEventsReceivedCheckTimer() {
-        noEventsReceivedTimerId?.let { runCatching { vertx.cancelTimer(it) } }
-        noEventsReceivedTimerId = null
     }
 }
 
