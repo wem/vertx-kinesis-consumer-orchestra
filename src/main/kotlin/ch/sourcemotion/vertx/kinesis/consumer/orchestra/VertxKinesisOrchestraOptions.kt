@@ -292,7 +292,14 @@ data class FetcherOptions(
      * Applied to [software.amazon.awssdk.services.dynamodb.model.GetRecordsRequest.limit]
      */
     val getRecordsLimit: Int = DEFAULT_GET_RECORDS_LIMIT,
-    val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment()
+
+    val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment(),
+
+    /**
+     * Optional options to use enhanced fan out. If this options are set, all other options of [FetcherOptions] are not
+     * considered except [recordsPreFetchLimit].
+     */
+    val enhancedFanOut: EnhancedFanOutOptions? = null
 ) {
     init {
         require(recordsFetchIntervalMillis > 0) { "recordsFetchInterval must be a positive duration. But is \"$recordsFetchIntervalMillis\"" }
@@ -300,6 +307,10 @@ data class FetcherOptions(
         require(getRecordsLimit.isPositive()) { "getRecordsLimit must be a positive integer. But is \"$getRecordsLimit\"" }
     }
 }
+
+data class EnhancedFanOutOptions(
+    val streamArn: String,
+)
 
 data class DynamicLimitAdjustment(
 
