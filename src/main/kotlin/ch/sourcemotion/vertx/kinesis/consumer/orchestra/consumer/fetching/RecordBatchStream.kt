@@ -1,12 +1,11 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardIterator
 import kotlinx.coroutines.channels.Channel
-import mu.KLogging
 import software.amazon.awssdk.services.kinesis.model.GetRecordsResponse
 import software.amazon.awssdk.services.kinesis.model.Record
+import software.amazon.awssdk.services.kinesis.model.SubscribeToShardEvent
 
 internal data class RecordBatch(
     val records: List<Record>,
@@ -17,13 +16,7 @@ internal data class RecordBatch(
     val resharded: Boolean = nextShardIterator == null
 }
 
-internal class RecordBatchStream(
-    private val recordsPreFetchLimit: Int,
-    private val streamName: String,
-    private val shardId: ShardId
-) {
-
-    private companion object : KLogging()
+internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
 
     private var responseEntryChannel = Channel<ResponseEntry>(recordsPreFetchLimit)
 
@@ -35,7 +28,6 @@ internal class RecordBatchStream(
         }
         return object : RecordBatchStreamWriter {
             override suspend fun writeToStream(response: GetRecordsResponse) {
-                logger.info { "Write \"${response.records().size}\" to record batch stream \"$streamName / $shardId\"" }
                 if (response.records().isEmpty()) {
                     listOf(
                         ResponseEntry(
@@ -46,10 +38,29 @@ internal class RecordBatchStream(
                     response.records().map {
                         ResponseEntry(it, ShardIterator.of(response.nextShardIterator()), response.millisBehindLatest())
                     }
+                }.forEach { responseEntryChannel.send(it) }
+            }
+
+            override suspend fun writeToStream(event: SubscribeToShardEvent) {
+                if (event.records().isEmpty()) {
+                    listOf(
+                        ResponseEntry(
+                            // On enhanced fan out we have no shard iterator, but sequence number for continuation.
+                            null, ShardIterator.of(event.continuationSequenceNumber()), event.millisBehindLatest()
+                        )
+                    )
+                } else {
+                    event.records().map {
+                        ResponseEntry(
+                            it,
+                            // On enhanced fan out we have no shard iterator, but sequence number for continuation.
+                            ShardIterator.of(event.continuationSequenceNumber()),
+                            event.millisBehindLatest()
+                        )
+                    }
                 }.forEach {
                     responseEntryChannel.send(it)
                 }
-                logger.info { "\"${response.records().size}\" written to record batch stream \"$streamName / $shardId\"" }
             }
 
             override fun resetStream() {
@@ -60,9 +71,9 @@ internal class RecordBatchStream(
 
     fun reader() = object : RecordBatchStreamReader {
         override suspend fun readFromStream(): RecordBatch {
-            val entries = ArrayList<ResponseEntry>()
-            logger.info { "Begin to read record batch from stream \"$streamName / $shardId\"" }
-            entries.add(responseEntryChannel.receive())
+            val entries = ArrayList<ResponseEntry>().apply {
+                add(responseEntryChannel.receive())
+            }
             while (responseEntryChannel.isEmpty.not()) {
                 entries.add(responseEntryChannel.receive())
             }
@@ -71,7 +82,6 @@ internal class RecordBatchStream(
             val latestSequenceNumber = if (records.isNotEmpty()) {
                 SequenceNumber.after(records.last().sequenceNumber())
             } else null
-            logger.info { "Read record batch of \"${records.size}\" records from stream \"$streamName / $shardId\"" }
             return RecordBatch(records, latestEntry.shardIterator, latestSequenceNumber, latestEntry.millisBehindLatest)
         }
     }
@@ -87,6 +97,7 @@ private data class ResponseEntry(val record: Record?, val shardIterator: ShardIt
 
 internal interface RecordBatchStreamWriter {
     suspend fun writeToStream(response: GetRecordsResponse)
+    suspend fun writeToStream(event: SubscribeToShardEvent)
     fun resetStream()
 }
 

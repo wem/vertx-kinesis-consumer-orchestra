@@ -2,7 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.DynamicRecordFetcher
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.Fetcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.adjacentParentShardIdTyped
@@ -16,16 +16,12 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import kotlinx.coroutines.ThreadContextElement
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import mu.KLogger
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
 import kotlin.LazyThreadSafetyMode.NONE
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -60,7 +56,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     @Volatile
     private var running = false
 
-    private lateinit var fetcher: DynamicRecordFetcher
+    private lateinit var fetcher: Fetcher
     private lateinit var recordBatchReader: RecordBatchStreamReader
 
     override suspend fun start() {
@@ -99,14 +95,11 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"", it)
         }
 
-        fetcher = DynamicRecordFetcher(
-            options.fetcherOptions,
-            startFetchPosition,
-            this,
-            options.clusterName.streamName,
-            shardId,
-            kinesisClient
-        )
+        fetcher = Fetcher.of(vertx, options.fetcherOptions, options.clusterName, startFetchPosition, this, shardId, kinesisClient)
+
+        // We start the fetcher here, so we can handle startup issues during deployment
+        fetcher.start()
+
         recordBatchReader = fetcher.streamReader
 
         runCatching { beginFetching(startFetchPosition) }
@@ -129,9 +122,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private fun beginFetching(startPosition: FetchPosition) {
         var previousPosition: FetchPosition = startPosition
-        fetcher.start()
         running = true
-        launch(ConsumerLoggingContext(logger, options.shardId)) {
+        launch {
             while (running) {
                 runCatching {
                     recordBatchReader.readFromStream()
@@ -265,18 +257,4 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private val consumerInfo: String
         get() = "{ cluster: \"${options.clusterName}\", shard: \"${shardId}\", verticle: \"${this::class.java.name}\" }"
-}
-
-private class ConsumerLoggingContext(
-    private val logger: KLogger,
-    private val shardId: ShardId
-) : ThreadContextElement<Unit>, AbstractCoroutineContextElement(Key) {
-    private companion object Key : CoroutineContext.Key<ConsumerLoggingContext>
-    override fun updateThreadContext(context: CoroutineContext) {
-        logger.info("Kinesis consumer on shard \"$shardId\" resumed / started")
-    }
-
-    override fun restoreThreadContext(context: CoroutineContext, oldState: Unit) {
-        logger.info("Kinesis consumer on shard \"$shardId\" suspend")
-    }
 }
