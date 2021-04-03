@@ -41,12 +41,12 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
     private var orchestra: VertxKinesisOrchestra? = null
 
     @BeforeEach
-    internal fun setUpComponent(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun setUpComponent() = asyncBeforeOrAfter {
         dynamoDbClient.forceCreateLeaseTable(LEASE_TABLE_NAME)
     }
 
     @AfterEach
-    internal fun closeOrchestra(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun closeOrchestra() = asyncBeforeOrAfter {
         orchestra?.closeAwait()
     }
 
@@ -80,7 +80,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
                     redisOptions = redisHeimdallOptions,
                     consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
-                    kinesisEndpoint = localStackContainer.getKinesisEndpointOverrideUri(),
+                    kinesisClientOptions = KinesisClientOptions(kinesisEndpoint = localStackContainer.getKinesisEndpointOverrideUri()),
                     kclV1ImportOptions = KCLV1ImportOptions(
                         leaseTableName = LEASE_TABLE_NAME,
                         dynamoDbEndpoint = localStackContainer.getDynamoDBEndpointOverride()

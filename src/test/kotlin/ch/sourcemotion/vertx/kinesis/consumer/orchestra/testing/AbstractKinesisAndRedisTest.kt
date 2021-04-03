@@ -2,7 +2,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.BeforeEach
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -18,14 +17,13 @@ internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Bool
     }
 
     @BeforeEach
-    fun credentialsProviderKinesisClientFactoryAndShardPersistence(testContext: VertxTestContext) =
-        asyncTest(testContext) {
-            vertx.shareCredentialsProvider()
-            vertx.shareKinesisAsyncClientFactory(getKinesisEndpointOverride())
-        }
+    internal fun setUpKinesisTest() = asyncBeforeOrAfter {
+        vertx.shareCredentialsProvider()
+        vertx.shareKinesisAsyncClientFactory(getKinesisEndpointOverride())
+        cleanupKinesisStreams()
+    }
 
-    @BeforeEach
-    fun cleanupKinesisStreams(testContext: VertxTestContext) = asyncTest(testContext) {
+    private suspend fun cleanupKinesisStreams() {
         val streamNames = kinesisClient.listStreams().await().streamNames()
         if (streamNames.isNotEmpty()) {
             streamNames.forEach { streamName ->
@@ -35,10 +33,10 @@ internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Bool
             }
 
             // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
-            var streamsAfterDeletion = kinesisClient.listStreams().await()
-            while (streamsAfterDeletion.streamNames().isNotEmpty()) {
-                streamsAfterDeletion = kinesisClient.listStreams().await()
-            }
+            var streamsExisting: Boolean
+            do {
+                streamsExisting = kinesisClient.listStreams().await().streamNames().isNotEmpty()
+            } while (streamsExisting)
             logger.info { "Kinesis streams cleaned up" }
         } else {
             logger.info { "Kinesis stream clean up not necessary" }

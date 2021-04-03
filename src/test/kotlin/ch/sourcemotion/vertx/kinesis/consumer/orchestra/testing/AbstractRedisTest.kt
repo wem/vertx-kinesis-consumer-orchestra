@@ -12,7 +12,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.extension.Single
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import eu.rekawek.toxiproxy.model.ToxicDirection
-import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.redis.client.sendAwait
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
@@ -64,14 +63,14 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
     }
 
     @BeforeEach
-    internal fun deployShardStatePersistence(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun deployShardStatePersistence() = asyncBeforeOrAfter {
         if (deployShardPersistence) {
             deployShardStatePersistenceService()
         }
     }
 
     @AfterEach
-    internal fun cleanUpRedis(testContext: VertxTestContext) = testContext.async {
+    internal fun cleanUpRedis() = asyncBeforeOrAfter {
         removeRedisToxies()
         flushAllOnRedis()
     }

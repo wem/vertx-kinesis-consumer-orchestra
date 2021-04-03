@@ -15,6 +15,7 @@ import io.vertx.core.DeploymentOptions
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deployVerticleAwait
+import io.vertx.kotlin.core.undeployAwait
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.AfterEach
@@ -38,7 +39,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     private var deploymentId: String? = null
 
     @BeforeEach
-    internal fun deployShardStatePersistenceService(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun deployShardStatePersistenceService() = asyncBeforeOrAfter {
         deployShardStatePersistenceService(DEFAULT_TEST_EXPIRATION_MILLIS)
 
         val options = RedisShardStatePersistenceServiceVerticleOptions(
@@ -55,8 +56,8 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     }
 
     @AfterEach
-    internal fun undeployShardPersistenceVerticle(testContext: VertxTestContext) {
-        deploymentId?.let { vertx.undeploy(it, testContext.completing()) }
+    internal fun undeployShardPersistenceVerticle() = asyncBeforeOrAfter {
+        deploymentId?.let { vertx.undeployAwait(it) }
     }
 
     @Test
