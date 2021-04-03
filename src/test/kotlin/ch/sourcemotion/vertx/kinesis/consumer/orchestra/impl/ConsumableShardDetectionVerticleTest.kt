@@ -18,13 +18,14 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.eventbus.requestAwait
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import mu.KLogging
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import java.time.Instant
 
 internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTest() {
 
-    private companion object {
+    private companion object : KLogging() {
         val defaultOptions = ConsumableShardDetectionVerticle.Options(
             TEST_CLUSTER_ORCHESTRA_NAME,
             1,
@@ -103,7 +104,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
                     val cmd = msg.body()
                     cmd.shardIds.shouldContainExactly(consumableShardId)
                 }
-                launch {
+                defaultTestScope.launch {
                     shardStatePersistenceService.flagShardInProgress(consumableShardId)
                     msg.ack()
                     checkpoint.flag()
@@ -138,7 +139,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
     }
 
     @Test
-    internal fun detect_later_not_proceeded(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+    internal fun shard_no_more_proceeded(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val shardId = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first().shardIdTyped()
         shardStatePersistenceService.flagShardInProgress(shardId)
 
@@ -146,7 +147,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             testContext.verify {
                 val cmd = msg.body()
                 cmd.shardIds.shouldContainExactly(shardId)
-                cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST) // Because command results not from the initial detection run
+                cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST) // Because the first detection runs shouldn't detect consumable shard as flagged in progress
             }
             msg.ack()
             checkpoint.flag()
@@ -155,7 +156,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         deployConsumableShardDetectorVerticle(defaultOptions.copy(initialIteratorStrategy = ShardIteratorStrategy.FORCE_LATEST))
         sendShardsConsumedCountNotification(0)
         // We wait some detection rounds
-        delay(defaultOptions.detectionInterval * 2)
+        delay(defaultOptions.detectionInterval * 2 + KINESIS_API_LATENCY_MILLIS)
 
         shardStatePersistenceService.flagShardNoMoreInProgress(shardId)
     }
@@ -216,27 +217,28 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
                     val cmd = msg.body()
                     when (cmd.shardIds.size) {
                         1 -> {
-                            cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.FORCE_LATEST)
                             cmd.shardIds.shouldContainExactly(parentShard.shardIdTyped())
+                            cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.FORCE_LATEST)
+                            defaultTestScope.launch {
+                                shardStatePersistenceService.saveFinishedShard(parentShard.shardIdTyped(), Duration.ofHours(1).toMillis())
+                                kinesisClient.splitShardFair(parentShard)
+                                checkpoint.flag()
+                                msg.ack()
+                            }
                         }
                         2 -> {
-                            cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST)
                             cmd.shardIds.shouldContainExactlyInAnyOrder(childShardIds)
+                            cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST)
+                            repeat(cmd.shardIds.size) { checkpoint.flag() }
+                            msg.ack()
                         }
                         else -> testContext.failNow(Exception("Start command for unexpected shards ${cmd.shardIds.joinToString()}"))
                     }
-                    repeat(cmd.shardIds.size) { checkpoint.flag() }
                 }
-                msg.ack()
             }
 
-            deployConsumableShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 3))
+            deployConsumableShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 2))
             sendShardsConsumedCountNotification(0)
-
-            delay(defaultOptions.detectionInterval * 2)
-
-            shardStatePersistenceService.saveFinishedShard(parentShard.shardIdTyped(), Duration.ofHours(1).toMillis())
-            kinesisClient.splitShardFair(parentShard)
         }
 
     @Test
@@ -306,41 +308,45 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             val parentShards = kinesisClient.createAndGetStreamDescriptionWhenActive(2).shards()
             val childShardId = ShardIdGenerator.generateShardId(2)
 
+            val finishAndMergeParentShards = suspend {
+                kinesisClient.mergeShards(parentShards)
+                parentShards.forEach {
+                    shardStatePersistenceService.saveFinishedShard(it.shardIdTyped(),Duration.ofHours(1).toMillis())
+                }
+            }
+
             var parentsDetected = false
             eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
                 testContext.verify {
                     val cmd = msg.body()
                     when (cmd.shardIds.size) {
                         1 -> {
+                            // Second, the merge child must get started
                             parentsDetected.shouldBeTrue()
                             cmd.shardIds.shouldContainExactly(childShardId)
                             cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST)
+                            msg.ack()
                         }
                         2 -> {
+                            // First the parents shard must get started
                             parentsDetected.shouldBeFalse()
                             parentsDetected = true
                             cmd.shardIds.shouldContainExactlyInAnyOrder(parentShards.map { it.shardIdTyped() })
                             cmd.iteratorStrategy.shouldBe(ShardIteratorStrategy.FORCE_LATEST)
+                            // After parents are started, they will get finished and merged.
+                            defaultTestScope.launch {
+                                finishAndMergeParentShards()
+                                msg.ack()
+                            }
                         }
                         else -> testContext.failNow(Exception("Start command for unexpected shards ${cmd.shardIds.joinToString()}"))
                     }
                     repeat(cmd.shardIds.size) { checkpoint.flag() }
                 }
-                msg.ack()
             }
 
             deployConsumableShardDetectorVerticle(defaultOptions.copy(maxShardCountToConsume = 3))
             sendShardsConsumedCountNotification(0)
-
-            delay(defaultOptions.detectionInterval * 2)
-
-            parentShards.forEach {
-                shardStatePersistenceService.saveFinishedShard(
-                    it.shardIdTyped(),
-                    Duration.ofHours(1).toMillis()
-                )
-            }
-            kinesisClient.mergeShards(parentShards)
         }
 
     @Test
@@ -406,7 +412,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
                             detectionStopNotificationTimestamp.shouldNotBeNull().plusMillis(delayToRestartDetection)
 
                         val expectedLatestDetectionRestartTimestamp =
-                            detectionStopNotificationTimestamp.shouldNotBeNull().plusMillis(delayToRestartDetection * 2)
+                            detectionStopNotificationTimestamp.shouldNotBeNull().plusMillis(delayToRestartDetection * 2 + KINESIS_API_LATENCY_MILLIS)
 
                         val detectionRestartTimestamp = Instant.now()
                         detectionRestartTimestamp.shouldBeBetween(
