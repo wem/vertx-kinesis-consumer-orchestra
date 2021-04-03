@@ -1,5 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
@@ -12,11 +13,12 @@ import software.amazon.awssdk.services.kinesis.model.StreamStatus
  * has status [StreamStatus.ACTIVE] so we are based on actual state.
  */
 internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
-    var description = streamDescriptionAwait(streamName)
-    while (description.streamStatus() != StreamStatus.ACTIVE) {
-        description = streamDescriptionAwait(streamName)
-    }
-    return description
+    var description: StreamDescription? = null
+    do {
+        delay(300)
+        runCatching { description = streamDescriptionAwait(streamName) }
+    } while (description?.streamStatus() != StreamStatus.ACTIVE)
+    return description!!
 }
 
 private suspend fun KinesisAsyncClient.streamDescriptionAwait(streamName: String): StreamDescription = describeStream {
