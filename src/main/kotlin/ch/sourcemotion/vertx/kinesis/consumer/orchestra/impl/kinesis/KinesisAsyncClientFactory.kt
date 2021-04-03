@@ -1,35 +1,34 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.KinesisClientOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
 import io.reactiverse.awssdk.VertxSdkClient
 import io.vertx.core.Context
 import io.vertx.core.Vertx
-import io.vertx.core.http.HttpClientOptions
+import io.vertx.core.VertxException
 import io.vertx.core.shareddata.Shareable
-import mu.KLogging
-import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.core.internal.retry.SdkDefaultRetrySetting
+import software.amazon.awssdk.core.retry.RetryPolicy
+import software.amazon.awssdk.core.retry.conditions.*
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
-import java.net.URI
 
 /**
- * Factory of [KinesisAsyncClient] instances. This factory can be preconfigured, so later [Context] specific instances
+ * Factory of Vert.x http client based [KinesisAsyncClient] instances. This factory can be preconfigured, so later [Context] specific instances
  * can be fabricated.
  */
 internal class KinesisAsyncClientFactory(
-    private val vertx: Vertx,
-    private val region: String,
-    private val kinesisEndpoint: String?,
-    private val httpClientOptions: HttpClientOptions,
-    private val awsClientMetricOptions: AwsClientMetricOptions? = null
-) : Shareable, KLogging() {
+    vertx: Vertx,
+    region: String,
+    kinesisClientOptions: KinesisClientOptions,
+    awsClientMetricOptions: AwsClientMetricOptions? = null
+) : AbstractKinesisAsyncClientFactory(vertx, region, kinesisClientOptions, awsClientMetricOptions), Shareable {
 
     companion object {
-        const val SHARED_DATA_REF = "kinesis-async-client-factory"
-        private const val CLIENT_CONTEXT_REF = "kinesis-client-instance"
+        const val SHARED_DATA_REF = "vertx-kinesis-async-client-factory"
+        private const val CLIENT_CONTEXT_REF = "vertx-kinesis-client-instance"
     }
 
     fun createKinesisAsyncClient(context: Context): KinesisAsyncClient {
@@ -43,18 +42,26 @@ internal class KinesisAsyncClientFactory(
             ShareableAwsCredentialsProvider.SHARED_DATA_REF
         )
 
-        val builder = KinesisAsyncClient.builder()
-            .region(Region.of(region))
-            .credentialsProvider(awsCredentialsProvider)
-            .overrideConfiguration { c ->
-                AwsClientMetricFactory.create(vertx, awsClientMetricOptions)
-                    ?.let { metricPublisher -> c.addMetricPublisher(metricPublisher) }
-            }
-
-        kinesisEndpoint?.let { builder.endpointOverride(URI(it)) }
-
-        return VertxSdkClient.withVertx(builder, httpClientOptions, context).build().also {
-            context.put(CLIENT_CONTEXT_REF, it)
+        val builder = baseBuilderOf(awsCredentialsProvider)
+        val retryPolicy = RetryPolicy.defaultRetryPolicy().toBuilder()
+            .additionalRetryConditionsAllowed(true)
+            .retryCondition(
+                // Add VertxException to retry conditions.
+                OrRetryCondition.create(
+                    RetryOnExceptionsCondition.create(VertxException::class.java),
+                    RetryOnStatusCodeCondition.create(SdkDefaultRetrySetting.RETRYABLE_STATUS_CODES),
+                    RetryOnExceptionsCondition.create(SdkDefaultRetrySetting.RETRYABLE_EXCEPTIONS),
+                    RetryOnClockSkewCondition.create(),
+                    RetryOnThrottlingCondition.create()
+                )
+            ).build()
+        builder.overrideConfiguration {
+            it.retryPolicy(retryPolicy)
         }
+
+        val client =  VertxSdkClient.withVertx(builder, kinesisClientOptions.kinesisHttpClientOptions, context).build()
+
+        context.put(CLIENT_CONTEXT_REF, client)
+        return client
     }
 }
