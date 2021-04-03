@@ -11,6 +11,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.registerKinesis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1Importer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.importer.KCLV1ImporterCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.NettyKinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
@@ -52,7 +53,7 @@ internal class VertxKinesisOrchestraImpl(
 
         val awsCredentialsProvider = options.credentialsProviderSupplier.get()
         shareCredentials(awsCredentialsProvider)
-        shareFactories(vertx)
+        shareKinesisClientFactories(vertx)
 
         if (options.useCustomShardStatePersistenceService.not()) {
             deployDefaultShardStatePersistence()
@@ -182,18 +183,33 @@ internal class VertxKinesisOrchestraImpl(
     /**
      * Sharing of some factories like Kinesis async client, so we have a single point of configuration.
      */
-    private fun shareFactories(vertx: Vertx) {
+    private fun shareKinesisClientFactories(vertx: Vertx) {
         SharedData.shareInstance(
             vertx,
             KinesisAsyncClientFactory(
                 vertx,
                 options.region,
-                options.kinesisEndpoint,
-                options.kinesisHttpClientOptions,
+                options.kinesisClientOptions,
                 options.awsClientMetricOptions
             ),
             KinesisAsyncClientFactory.SHARED_DATA_REF
         )
+
+        val enhanceFanoutOptions = options.fetcherOptions.enhancedFanOut
+        if (enhanceFanoutOptions?.useSdkNettyClient == true) {
+            SharedData.shareInstance(
+                vertx,
+                NettyKinesisAsyncClientFactory(
+                    vertx,
+                    options.region,
+                    options.kinesisClientOptions,
+                    options.awsClientMetricOptions,
+                    enhanceFanoutOptions.sdkNettyMaxConcurrency,
+                    enhanceFanoutOptions.sdkNettyMaxStreams
+                ),
+                NettyKinesisAsyncClientFactory.SHARED_DATA_REF
+            )
+        }
     }
 }
 
