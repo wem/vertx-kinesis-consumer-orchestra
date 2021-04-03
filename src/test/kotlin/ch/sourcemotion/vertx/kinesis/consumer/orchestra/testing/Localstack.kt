@@ -7,11 +7,11 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 
 object Localstack {
-    val dockerImage: DockerImageName = DockerImageName.parse("localstack/localstack:0.12.2")
+    val dockerImage: DockerImageName = DockerImageName.parse("localstack/localstack:0.12.9.1")
 
     val credentialsProvider: StaticCredentialsProvider =
         StaticCredentialsProvider.create(AwsBasicCredentials.create("test-access-key", "test-secret-key"))
-    val region: Region = Region.EU_WEST_1
+    val region: Region = Region.US_EAST_1
 }
 
 fun LocalStackContainer.getKinesisEndpointOverrideUri() = "${getEndpointOverride(LocalStackContainer.Service.KINESIS)}"
