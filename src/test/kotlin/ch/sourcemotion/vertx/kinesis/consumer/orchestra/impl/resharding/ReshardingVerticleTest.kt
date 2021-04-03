@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test
 internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
 
     @BeforeEach
-    internal fun setUp(testContext: VertxTestContext) = testContext.async {
+    internal fun setUp() = asyncBeforeOrAfter {
         val options = ReshardingVerticle.Options(TEST_CLUSTER_ORCHESTRA_NAME, redisHeimdallOptions)
         deployTestVerticle<ReshardingVerticle>(options)
     }

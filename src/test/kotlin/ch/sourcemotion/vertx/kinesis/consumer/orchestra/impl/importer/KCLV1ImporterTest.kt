@@ -34,7 +34,7 @@ internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest 
     }
 
     @BeforeEach
-    internal fun setUp(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun setUp() = asyncBeforeOrAfter {
         shareCredentialsProviders()
         dynamoDbClient.forceCreateLeaseTable(LEASE_TABLE_NAME)
     }
