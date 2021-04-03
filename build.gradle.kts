@@ -3,8 +3,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.31"
-    kotlin("kapt") version "1.4.31"
+    kotlin("jvm") version "1.4.32"
+    kotlin("kapt") version "1.4.32"
     id("com.jfrog.bintray") version "1.8.5"
     `maven-publish`
 }
@@ -27,12 +27,14 @@ dependencies {
     api(vertx("vertx-lang-kotlin-coroutines"))
     api(vertx("vertx-service-discovery"))
     api(vertx("vertx-service-proxy"))
+    api(vertx("vertx-micrometer-metrics"))
     compileOnly(vertx("vertx-codegen"))
 
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
     api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}", JacksonExclusion)
     api(awsSdk("kinesis"), JacksonExclusion)
+    api(awsSdk("netty-nio-client"), JacksonExclusion)
     api(awsSdk("dynamodb"), JacksonExclusion)
     api(awsSdk("sts"), JacksonExclusion)
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
@@ -49,18 +51,12 @@ dependencies {
     testImplementation("org.junit.vintage:junit-vintage-engine")
     testImplementation("io.kotest:kotest-assertions-core-jvm:${libVersion("kotest")}")
     testImplementation(vertx("vertx-junit5"))
-    testImplementation(vertx("vertx-rx-java"))
-    testImplementation(vertx("vertx-rx-java2"))
     testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${libVersion("mockito-kotlin")}")
     testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${libVersion("log4j")}")
     testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
     testImplementation("org.testcontainers:localstack", JacksonExclusion)
     testImplementation("org.testcontainers:toxiproxy", JacksonExclusion)
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}", NettyExclusion)
-}
-
-configurations.forEach {
-    it.exclude("software.amazon.awssdk", "netty-nio-client")
 }
 
 object AwsSdkExclusion : DependencyExclusion(
@@ -116,7 +112,8 @@ tasks {
     withType<Test> {
         useJUnitPlatform()
         systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
-        environment(Pair("AWS_CBOR_DISABLE", "true"), Pair("CBOR_ENABLED", "false"), Pair("aws.cborEnabled", "false"))
+        environment("AWS_CBOR_DISABLE" to "true", "CBOR_ENABLED" to "false", "aws.cborEnabled" to "false",
+            "DEFAULT_REGION" to "us-east-1")
     }
 }
 
