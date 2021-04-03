@@ -1,10 +1,11 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.KinesisClientOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardList
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SharedData
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.NettyKinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -17,15 +18,30 @@ import software.amazon.awssdk.services.kinesis.model.Shard
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.math.BigInteger
 
+/**
+ * Localstack simulates some latency on Kinesis API calls. This value must get considered on timing related tests.
+ *
+ * [500] is the default.
+ */
+const val KINESIS_API_LATENCY_MILLIS = 500
+
 fun Vertx.shareKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
     val kinesisAsyncClientFactory =
         KinesisAsyncClientFactory(
             this,
             Localstack.region.id(),
-            kinesisEndpointOverride,
-            VertxKinesisOrchestraOptions.DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS
+            KinesisClientOptions(kinesisEndpoint = kinesisEndpointOverride)
         )
     SharedData.shareInstance(this, kinesisAsyncClientFactory, KinesisAsyncClientFactory.SHARED_DATA_REF)
+}
+
+fun Vertx.shareNettyKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
+    val factory = NettyKinesisAsyncClientFactory(
+        this,
+        Localstack.region.id(),
+        KinesisClientOptions(kinesisEndpoint = kinesisEndpointOverride)
+    )
+    SharedData.shareInstance(this, factory, NettyKinesisAsyncClientFactory.SHARED_DATA_REF)
 }
 
 suspend fun KinesisAsyncClient.createAndGetStreamDescriptionWhenActive(
