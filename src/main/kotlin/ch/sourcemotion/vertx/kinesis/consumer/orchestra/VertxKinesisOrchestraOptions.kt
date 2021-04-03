@@ -1,5 +1,8 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_FETCHER_METRICS_ENABLED
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_ENABLED
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_ADJUSTMENT_STEP
@@ -8,9 +11,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_USE_SDK_NETTY_CLIENT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.AwsClientMetricOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
@@ -20,6 +25,7 @@ import io.vertx.core.json.JsonObject
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider
 import software.amazon.awssdk.regions.Region
+import software.amazon.awssdk.services.kinesis.model.ConsumerStatus
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.function.Supplier
@@ -65,18 +71,10 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     val credentialsProviderSupplier: Supplier<AwsCredentialsProvider> = Supplier { DefaultCredentialsProvider.create() },
 
     /**
-     * Alternative kinesis endpoint.
+     * Options for Kinesis client to use. For all operations (except enhanced fanout) Vert.x Http client will be used.
+     * To enable AWS SDK built-in Netty client, please set [FetcherOptions.useSdkNettyClient] to true.
      */
-    val kinesisEndpoint: String? = null,
-
-    /**
-     * Options for the http client to access Kinesis.
-     * Default as defined by io.reactiverse.awssdk.VertxNioAsyncHttpClient,
-     * software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient and software.amazon.awssdk.http.SdkHttpConfigurationOption
-     *
-     * https://github.com/reactiverse/aws-sdk/issues/40
-     */
-    val kinesisHttpClientOptions: HttpClientOptions = DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS,
+    val kinesisClientOptions: KinesisClientOptions = KinesisClientOptions(),
 
     /**
      * Vert.x Redis options. Used for shard state persistence (sequence number position of consuming shard) and
@@ -180,6 +178,13 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
 
+        const val DEFAULT_USE_SDK_NETTY_CLIENT = false
+
+        const val DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS = 6000L
+        const val DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS = 2000L
+        const val DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL = 500L
+        const val DEFAULT_FETCHER_METRICS_ENABLED = false
+
         val DEFAULT_REGION: Region = Region.EU_WEST_1
         val DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS: HttpClientOptions = HttpClientOptions().setSsl(true)
             .setKeepAlive(true)
@@ -188,6 +193,22 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
             .setConnectTimeout(10000)
     }
 }
+
+data class KinesisClientOptions(
+    /**
+     * Alternative kinesis endpoint.
+     */
+    val kinesisEndpoint: String? = null,
+
+    /**
+     * Options for the http client to access Kinesis.
+     * Default as defined by io.reactiverse.awssdk.VertxNioAsyncHttpClient,
+     * software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient and software.amazon.awssdk.http.SdkHttpConfigurationOption
+     *
+     * https://github.com/reactiverse/aws-sdk/issues/40
+     */
+    val kinesisHttpClientOptions: HttpClientOptions = VertxKinesisOrchestraOptions.DEFAULT_KINESIS_HTTP_CLIENT_OPTIONS,
+)
 
 enum class ErrorHandling {
     /**
@@ -296,6 +317,21 @@ data class FetcherOptions(
     val dynamicLimitAdjustment: DynamicLimitAdjustment = DynamicLimitAdjustment(),
 
     /**
+     * Enables metric which will count the number of fetched records
+     */
+    val metricsEnabled: Boolean = DEFAULT_FETCHER_METRICS_ENABLED,
+
+    /**
+     * Explicit name of the Micrometer registry to use. If null [BackendRegistries.getDefaultNow()] will be used.
+     */
+    val metricRegistryName: String? = null,
+
+    /**
+     * Name of the Micrometer counter that will count the number of received records.
+     */
+    val metricName: String? = null,
+
+    /**
      * Optional options to use enhanced fan out. If this options are set, all other options of [FetcherOptions] are not
      * considered except [recordsPreFetchLimit].
      */
@@ -310,6 +346,42 @@ data class FetcherOptions(
 
 data class EnhancedFanOutOptions(
     val streamArn: String,
+
+    /**
+     * Enhanced fan out subscription can only happen each 5 second per consumer per shard. Some times Kinesis will respond
+     * failures a short time after 5 seconds. So this value is customizable.
+     */
+    val minResubscribeIntervalMillis: Long = DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS,
+
+    /**
+     * Retry interval for register consumer / list consumers if the requests did fail because of exceed limit or
+     * resource is in use.
+     */
+    val consumerRegistrationRetryIntervalMillis: Long = DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS,
+
+    /**
+     * Interval to check if the consumer is in active state ([ConsumerStatus.ACTIVE]) and is ready for subscription. As an enhanced fan out consumer
+     * is a common AWS resource. It has the same transitions as some other resources
+     */
+    val consumerActiveCheckInterval: Long = DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL,
+
+    /**
+     * If this flag is true, the standard Netty client, shipped with the AWS SDK will be used instead of the Vert.x
+     * variant.
+     */
+    val useSdkNettyClient: Boolean = DEFAULT_USE_SDK_NETTY_CLIENT,
+
+    /**
+     * AWS SDK Netty client configuration for max concurrency.
+     * @see [software.amazon.awssdk.http.nio.netty.NettyNioAsyncHttpClient.Builder.maxConcurrency]
+     */
+    val sdkNettyMaxConcurrency: Int? = null,
+
+    /**
+     * AWS SDK Netty client configuration for max stream.
+     * @see [software.amazon.awssdk.http.nio.netty.Http2Configuration.Builder.maxStreams]
+     */
+    val sdkNettyMaxStreams: Long? = null
 )
 
 data class DynamicLimitAdjustment(
