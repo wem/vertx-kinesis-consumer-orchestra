@@ -110,8 +110,8 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
 
                 logger.info {
                     "Consumable shards detected ${availableShards.joinToString { it.shardId() }}. " +
-                            "Will send start command for shards ${shardIdListToConsume.joinToString()} according to " +
-                            "\"parent(s) must be finished first\" rule."
+                            "Will send start command for shards ${shardIdListToConsume.joinToString()} with iterator " +
+                            "strategy \"$iteratorStrategy\" according to \"parent(s) must be finished first\" rule."
                 }
 
                 val cmd = StartConsumersCmd(shardIdListToConsume, iteratorStrategy)
@@ -119,7 +119,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
                     EventBusAddr.consumerControl.startConsumersCmd, cmd, localOnlyDeliveryOptions
                 )
             } else {
-                logger.debug { "Consumable shard detection did run, but there was no consumable shard to consume" }
+                logger.info { "Consumable shard detection did run, but there was no consumable shard to consume on stream \"${options.clusterName.streamName}\"" }
             }
         }.invokeOnCompletion {
             initialDetection = false
