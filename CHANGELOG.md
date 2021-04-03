@@ -72,4 +72,22 @@ This will ensure that any verticle is available as long as it's needed.
 ## [0.8.3]
 ### Improved
 #### #25 Parameterizable HttpClientOptions for Vert.x AWS SDK
-It's now possible to configure custom Vert.x http client options to access Kinesis. 
+It's now possible to configure custom Vert.x http client options to access Kinesis.
+
+## [0.0.9.0]
+**Note about the version number, the final release would get called 0.9.0 afterwards when related Localstack issues are fixed and tests adjusted.**
+### Feature
+#### Enhanced fanout support
+The VKCO now supports fetching records from Kinesis with the enhanced fanout mechanism. It's important to note that:
+- The enhanced fanout support currently works only with the AWS SDK built-in Netty client because of Http/2 configuration / behavior 
+  issues with the Vert.x client https://github.com/wem/vertx-kinesis-consumer-orchestra/issues/26.
+- Because of https://github.com/localstack/localstack/issues/3822 and https://github.com/localstack/localstack/issues/3823 the tests are limited at this time. 
+  Especially record cardinality / order tests (e.g. failure handling) are basically difficult when only LATEST shard iterator is available.
+  
+Take a look at `ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions` /
+`ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions` /
+`ch.sourcemotion.vertx.kinesis.consumer.orchestra.EnhancedFanOutOptions` how to use and configure.
+  
+#### Fetcher metrics
+VKCO now supports fetcher records counter metrics (applied only on enhanced fanout at the moment). 
+Please check `ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions`
