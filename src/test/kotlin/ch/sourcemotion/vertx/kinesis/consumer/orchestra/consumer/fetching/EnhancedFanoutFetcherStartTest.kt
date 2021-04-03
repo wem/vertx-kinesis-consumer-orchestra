@@ -10,10 +10,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractVertxTes
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.ShardIdGenerator
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_APPLICATION_NAME
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_STREAM_NAME
-import com.nhaarman.mockitokotlin2.KStubbing
-import com.nhaarman.mockitokotlin2.any
-import com.nhaarman.mockitokotlin2.doAnswer
-import com.nhaarman.mockitokotlin2.mock
+import com.nhaarman.mockitokotlin2.*
 import io.kotest.assertions.throwables.shouldThrow
 import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxTestContext
@@ -22,16 +19,15 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.*
 import java.util.concurrent.CompletableFuture
 
-internal class EnhancedFanoutFetcherTest : AbstractVertxTest() {
+internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
 
     private companion object {
-        const val STREAM_ARN = "stream-arn"
         const val CONSUMER_ARN = "consumer-arn"
         val clusterName = OrchestraClusterName(TEST_APPLICATION_NAME, TEST_STREAM_NAME)
         val shardId = ShardIdGenerator.generateShardId(0)
         val consumerName = clusterName.applicationName
 
-        val enhancedFanOutOptions = EnhancedFanOutOptions(STREAM_ARN)
+        val enhancedFanOutOptions = EnhancedFanOutOptions(TEST_STREAM_NAME)
 
         val defaultFetcherOptions = FetcherOptions(enhancedFanOut = enhancedFanOutOptions)
         val defaultStartSequenceNumber =
@@ -110,7 +106,7 @@ internal class EnhancedFanoutFetcherTest : AbstractVertxTest() {
     }
 
     @Test
-    internal fun start_failure_because_list_consumer_failed(testContext: VertxTestContext) = testContext.async {
+    internal fun start_failure_because_register_consumer_failed(testContext: VertxTestContext) = testContext.async {
         val kinesisClient = mock<KinesisAsyncClient> {
             on { listStreamConsumers(any<java.util.function.Consumer<ListStreamConsumersRequest.Builder>>()) } doAnswer {
                 CompletableFuture.failedFuture(Exception("Test failure"))
@@ -119,6 +115,52 @@ internal class EnhancedFanoutFetcherTest : AbstractVertxTest() {
 
         val sut = defaultEnhancedFanOutFetcher()
         shouldThrow<VertxKinesisConsumerOrchestraException> { sut.start() }
+    }
+
+    @Test
+    internal fun list_consumers_limit_exceeded(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+        val consumer = activeConsumer()
+        val kinesisClient = mock<KinesisAsyncClient> {
+            on { listStreamConsumers(any<java.util.function.Consumer<ListStreamConsumersRequest.Builder>>()) }
+                .doReturn(CompletableFuture.failedFuture(LimitExceededException.builder().build()))
+                .doReturn(CompletableFuture.completedFuture(
+                    ListStreamConsumersResponse.builder().consumers(listOf(consumer)).build()
+                ))
+            describeConsumer(consumer, true, checkpoint)
+        }
+
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
+        sut.start()
+    }
+
+    @Test
+    internal fun start_failure_because_list_consumers_failed(testContext: VertxTestContext) = testContext.async {
+        val kinesisClient = mock<KinesisAsyncClient> {
+            listConsumers(emptyList())
+            on { registerStreamConsumer(any<java.util.function.Consumer<RegisterStreamConsumerRequest.Builder>>()) } doAnswer {
+                CompletableFuture.failedFuture(Exception("Test failure"))
+            }
+        }
+
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
+        shouldThrow<VertxKinesisConsumerOrchestraException> { sut.start() }
+    }
+
+    @Test
+    internal fun register_consumers_limit_exceeded(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+        val consumer = activeConsumer()
+        val kinesisClient = mock<KinesisAsyncClient> {
+            listConsumers(emptyList())
+            on { registerStreamConsumer(any<java.util.function.Consumer<RegisterStreamConsumerRequest.Builder>>()) }
+                .doReturn(CompletableFuture.failedFuture(LimitExceededException.builder().build()))
+                .doReturn(CompletableFuture.completedFuture(
+                    RegisterStreamConsumerResponse.builder().consumer(consumer).build()
+                ))
+            describeConsumer(consumer, true, checkpoint)
+        }
+
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
+        sut.start()
     }
 
 
@@ -149,8 +191,8 @@ internal class EnhancedFanoutFetcherTest : AbstractVertxTest() {
                 .consumerStatus(consumer.consumerStatus()).build()
         ).build()
 
-    private fun defaultEnhancedFanOutFetcher() =
-        EnhancedFanoutFetcher(defaultFetcherOptions)
+    private fun CoroutineScope.defaultEnhancedFanOutFetcher(kinesisClient: KinesisAsyncClient) =
+        EnhancedFanoutFetcher(vertx, vertx.orCreateContext, defaultFetcherOptions, enhancedFanOutOptions, clusterName, defaultStartSequenceNumber, this, shardId, kinesisClient, null)
 
     private fun activeConsumer() = Consumer.builder().consumerARN(CONSUMER_ARN).consumerName(
         consumerName

@@ -80,7 +80,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
                     credentialsProviderSupplier = { Localstack.credentialsProvider },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
                     redisOptions = redisHeimdallOptions,
-                    consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(ComponentTest.PARAMETER_VALUE)),
+                    consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(AbstractComponentTest.PARAMETER_VALUE)),
                     kinesisClientOptions = KinesisClientOptions(kinesisEndpoint = localStackContainer.getKinesisEndpointOverrideUri()),
                     kclV1ImportOptions = KCLV1ImportOptions(
                         leaseTableName = LEASE_TABLE_NAME,
@@ -104,7 +104,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
 class ComponentWithImportTestConsumerVerticle : AbstractKinesisConsumerCoroutineVerticle() {
     override suspend fun onRecordsAsync(records: List<Record>) {
-        vertx.eventBus().send(ComponentTest.RECORD_FAN_OUT_ADDR, JsonArray(records.map { it.sequenceNumber() }))
+        vertx.eventBus().send(AbstractComponentTest.RECORD_FAN_OUT_ADDR, JsonArray(records.map { it.sequenceNumber() }))
     }
 }
 

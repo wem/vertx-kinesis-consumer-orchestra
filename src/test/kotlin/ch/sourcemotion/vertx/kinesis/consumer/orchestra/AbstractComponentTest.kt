@@ -1,9 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ComponentTest.FanoutMessage
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.kotest.matchers.shouldBe
@@ -16,9 +14,9 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.Record
-import kotlin.LazyThreadSafetyMode.NONE
+import software.amazon.awssdk.services.kinesis.model.StreamDescription
 
-internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
+internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(false) {
 
     companion object : KLogging() {
         const val RECORD_FAN_OUT_ADDR = "/kinesis/consumer/orchestra/fan-out"
@@ -29,51 +27,48 @@ internal class ComponentTest : AbstractKinesisAndRedisTest(false) {
 
     private var orchestra: VertxKinesisOrchestra? = null
 
-    private val orchestraOptions by lazy(NONE) {
-        VertxKinesisOrchestraOptions(
+
+    @BeforeEach
+    internal fun setUpComponent() = asyncBeforeOrAfter {
+        vertx.eventBus().registerDefaultCodec(FanoutMessage::class.java, LocalCodec("fanout-message-codec"))
+        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
+        val orchestraOptions = VertxKinesisOrchestraOptions(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
+            region = Localstack.region.id(),
             credentialsProviderSupplier = { Localstack.credentialsProvider },
             consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,
             redisOptions = redisHeimdallOptions,
             consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
-            kinesisEndpoint = getKinesisEndpointOverride(),
-            loadConfiguration = LoadConfiguration.createConsumeExact(1, NOT_CONSUMED_SHARD_DETECTION_INTERVAL)
+            kinesisClientOptions = KinesisClientOptions(kinesisEndpoint = getKinesisEndpointOverride()),
+            loadConfiguration = LoadConfiguration.createConsumeExact(1, NOT_CONSUMED_SHARD_DETECTION_INTERVAL),
+            fetcherOptions = fetcherOptions(streamDescription)
         )
-    }
-
-    @BeforeEach
-    internal fun setUpComponent(testContext: VertxTestContext) = asyncTest(testContext) {
-        vertx.eventBus().registerDefaultCodec(FanoutMessage::class.java, LocalCodec("fanout-message-code"))
-        kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
         orchestra = VertxKinesisOrchestra.create(vertx, orchestraOptions).start().await()
     }
 
     @AfterEach
-    internal fun closeOrchestra(testContext: VertxTestContext) = asyncTest(testContext) {
-        orchestra?.close()?.await()
+    fun closeOrchestra() = asyncBeforeOrAfter {
+        orchestra?.closeAwait()
     }
 
     @Test
-    internal fun consume_some_records(testContext: VertxTestContext) =
-        testContext.async(RECORD_COUNT) { checkpoint ->
-            eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
-                val fanoutMessage = msg.body()
-                logger.info { "${fanoutMessage.recordCount} records received" }
-                repeat(fanoutMessage.recordCount) { checkpoint.flag() }
-                testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-            }.completion().await()
+    internal fun consume_some_records(testContext: VertxTestContext) = testContext.async(RECORD_COUNT) { checkpoint ->
+        eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
+            val fanoutMessage = msg.body()
+            repeat(fanoutMessage.recordCount) { checkpoint.flag() }
+            testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
+        }.completionHandlerAwait()
 
-            // We wait until consumer are deployed, so latest shard iterator will work
-            delay(orchestraOptions.loadConfiguration.notConsumedShardDetectionInterval * 2)
+        delay(5000)
+        kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
+    }
 
-            kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
-        }
-
-    data class FanoutMessage(val recordCount: Int, val parameter: String)
+    protected abstract fun fetcherOptions(streamDescription: StreamDescription): FetcherOptions
 }
 
+data class FanoutMessage(val recordCount: Int, val parameter: String)
 
 class ComponentTestConsumerVerticle : AbstractKinesisConsumerCoroutineVerticle() {
 
@@ -83,7 +78,7 @@ class ComponentTestConsumerVerticle : AbstractKinesisConsumerCoroutineVerticle()
 
     override suspend fun onRecordsAsync(records: List<Record>) {
         val msg = FanoutMessage(records.size, options.someParameter)
-        vertx.eventBus().send(ComponentTest.RECORD_FAN_OUT_ADDR, msg)
+        vertx.eventBus().send(AbstractComponentTest.RECORD_FAN_OUT_ADDR, msg)
     }
 }
 
