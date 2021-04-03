@@ -5,6 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrch
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.Fetcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.adjacentParentShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.parentShardIdTyped
@@ -92,12 +93,20 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                 kinesisClient
             ).getStartFetchPosition()
         }.getOrElse {
-            throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"", it)
+            throw VertxKinesisConsumerOrchestraException(
+                "Unable to lookup start position of consumer \"$consumerInfo\"",
+                it
+            )
         }
 
-        fetcher = Fetcher.of(vertx, options.fetcherOptions, options.clusterName,
-            startFetchPosition, this, shardId, kinesisClient)
-        fetcher.start()
+        fetcher = Fetcher.of(
+            vertx, options.fetcherOptions, options.clusterName, startFetchPosition,
+            this, shardId, kinesisClient
+        ).also {
+            // We start right fetcher here, so we can handle startup issues during deployment
+            it.start()
+        }
+
         recordBatchReader = fetcher.streamReader
 
         runCatching { beginFetching(startFetchPosition) }
@@ -145,7 +154,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
                         if (nextPosition != null) {
                             previousPosition = nextPosition
-                        } else {
+                        } else if (recordBatchReader.isEmpty()) {
                             onResharding()
                         }
                     } else if (positionToContinueAfterFailure != null) {
@@ -208,19 +217,31 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      * resharded and did end.
      */
     private suspend fun onResharding() {
-        logger.debug {
+        // The shard consumed flag should stay true here, otherwise the shard could be consumed concurrently.
+        logger.info {
             "Streaming on $consumerInfo ended because shard iterator did reach its end. Resharding did happen. " +
                     "Consumer(s) will be started recently according new shard setup."
         }
-        // The shared consumed flag should stay true here, otherwise the shard could be consumed concurrently.
         running = false
+        runCatching { fetcher.stop() }
+        runCatching { createReshardingEvent() }
+            .onSuccess { vertx.eventBus().send(EventBusAddr.resharding.notification, it) }
+            .onFailure { logger.warn(it) { "Unable to start resharding workflow properly. Try to self heal" } }
+    }
+
+    private suspend fun createReshardingEvent(attempt: Int = 0): ReshardingEvent {
+        if (attempt == 5) { // TODO: Make this configurable
+            vertx.eventBus().send(EventBusAddr.consumerControl.stopConsumerCmd, StopConsumerCmd(shardId))
+            throw VertxKinesisConsumerOrchestraException("Emergency consumer stop after 5 attempts to retrieve child shards of $consumerInfo")
+        }
         val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
         val shards = streamDescription.shards()
         val childShardIds =
             shards.filter { it.adjacentParentShardIdTyped() == options.shardId || it.parentShardIdTyped() == options.shardId }
                 .map { it.shardIdTyped() }
-        val reshardingEvent = ReshardingEvent.create(shardId, childShardIds)
-        vertx.eventBus().send(EventBusAddr.resharding.notification, reshardingEvent)
+        return ReshardingEvent.runCatching { create(shardId, childShardIds) }.getOrElse {
+            createReshardingEvent(attempt + 1)
+        }
     }
 
 
