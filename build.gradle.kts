@@ -10,7 +10,7 @@ plugins {
 }
 
 repositories {
-    mavenLocal()
+    mavenCentral()
     jcenter()
 }
 
@@ -38,7 +38,7 @@ dependencies {
     api(awsSdk("dynamodb"), JacksonExclusion)
     api(awsSdk("sts"), JacksonExclusion)
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
-    api("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
+    api("ch.sourcemotion.vertx:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
 
     api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}", AwsSdkExclusion)
 

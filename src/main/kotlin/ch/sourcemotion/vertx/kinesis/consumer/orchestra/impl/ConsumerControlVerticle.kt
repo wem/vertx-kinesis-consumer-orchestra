@@ -18,6 +18,7 @@ import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.redis.client.Redis
 import kotlinx.coroutines.launch
 import mu.KLogging
 import java.time.Duration
@@ -31,7 +32,7 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
     private val options by lazy(NONE) { config.mapTo(Options::class.java) }
 
-    private val redis by lazy(NONE) { RedisHeimdall.create(vertx, options.redisHeimdallOptions) }
+    private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, options.redisHeimdallOptions) }
 
     private val shardStatePersistence by lazy(NONE) {
         ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(

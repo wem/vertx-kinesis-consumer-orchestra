@@ -11,10 +11,7 @@ import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
-import io.vertx.core.DeploymentOptions
-import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
-import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.undeployAwait
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -26,11 +23,7 @@ import kotlin.LazyThreadSafetyMode.NONE
 internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
 
     companion object {
-        private const val APPLICATION_NAME = "test-application"
-        private const val STREAM_NAME = "test-stream"
-
         private const val DEFAULT_TEST_EXPIRATION_MILLIS = 1000L
-
         private val shardId = ShardIdGenerator.generateShardId()
     }
 
@@ -41,18 +34,6 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     @BeforeEach
     internal fun deployShardStatePersistenceService() = asyncBeforeOrAfter {
         deployShardStatePersistenceService(DEFAULT_TEST_EXPIRATION_MILLIS)
-
-        val options = RedisShardStatePersistenceServiceVerticleOptions(
-            APPLICATION_NAME,
-            STREAM_NAME,
-            redisHeimdallOptions.apply { redisOptions.maxPoolSize = 8 },
-            DEFAULT_TEST_EXPIRATION_MILLIS
-        )
-        deploymentId = vertx.deployVerticleAwait(
-            RedisShardStatePersistenceServiceVerticle::class.java.name, DeploymentOptions().setConfig(
-                JsonObject.mapFrom(options)
-            )
-        )
     }
 
     @AfterEach
@@ -143,8 +124,10 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
                     val parentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
                     val adjacentParentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
                     val childShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
-                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
-                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
+                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId)
+                        .also { testContext.verify { it.shouldBeFalse() } }
+                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId)
+                        .also { testContext.verify { it.shouldBeTrue() } }
                     checkpoint.flag()
                 }
             }
@@ -231,8 +214,10 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
                     val parentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
                     val adjacentParentShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
                     val childShardId = ShardIdGenerator.generateShardId(shardIdCounter++)
-                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId).shouldBeFalse()
-                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId).shouldBeTrue()
+                    sut.flagMergeParentReadyToReshard(parentShardId, childShardId)
+                        .also { testContext.verify { it.shouldBeFalse() } }
+                    sut.flagMergeParentReadyToReshard(adjacentParentShardId, childShardId)
+                        .also { testContext.verify { it.shouldBeTrue() } }
                     checkpoint.flag()
                 }
 
