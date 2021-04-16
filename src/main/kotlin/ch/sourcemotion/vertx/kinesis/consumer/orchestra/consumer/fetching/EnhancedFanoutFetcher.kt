@@ -4,10 +4,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.EnhancedFanOutOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.FetchPosition
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import io.micrometer.core.instrument.Counter
 import io.vertx.core.Context
 import io.vertx.core.Vertx
@@ -18,7 +15,6 @@ import org.reactivestreams.Subscriber
 import org.reactivestreams.Subscription
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.*
-import java.util.*
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import java.util.function.Supplier
@@ -307,7 +303,6 @@ private class EventSubscriber(
                 val latestRecord = event.records().lastOrNull()
                 val continuationSequenceNumber = event.continuationSequenceNumber()
                 currentSequenceNumberRef.value = if (continuationSequenceNumber != null) {
-                    SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AT)
                     if (latestRecord != null) {
                         if (latestRecord.sequenceNumber() == continuationSequenceNumber) {
                             SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AFTER)
@@ -344,7 +339,7 @@ private class EventSubscriber(
      * number in the case of the continuationSequenceNumber was null. So we can be sure the shard did really end.
      */
     private suspend fun isShardClosed() : Boolean {
-        val shard = kinesis.describeStream { it.streamName(streamName) }.await().streamDescription().shards().firstOrNull {
+        val shard = kinesis.streamDescriptionWhenActiveAwait(streamName).shards().firstOrNull {
             it.shardId() == "$shardId"
         }
         return shard == null || shard.sequenceNumberRange().endingSequenceNumber() != null
