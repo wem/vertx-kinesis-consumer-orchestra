@@ -349,8 +349,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
     }
 
     /**
-     * TODO: Localstack currently only supports LATEST shard iterator on enhanced fan out https://github.com/localstack/localstack/issues/3823. Therefore we actual can just test against LATEST shard iterator
-     *
      * Simulates the restart of a consumer to test interaction with iterator persistence etc.
      */
     @Test
@@ -392,9 +390,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                     defaultTestScope.launch {
                         testContext.verify { consumerDeploymentId.shouldNotBeNull() }
                         vertx.undeployAwait(consumerDeploymentId!!)
-
-                        // https://github.com/localstack/localstack/issues/3823
-                        shardStatePersistenceService.deleteShardSequenceNumber(streamDescription.getFirstShardId())
 
                         consumerRoundStarter()
 

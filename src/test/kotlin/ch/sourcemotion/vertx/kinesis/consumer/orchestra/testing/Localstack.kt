@@ -7,7 +7,11 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 
 object Localstack {
-    val dockerImage: DockerImageName = DockerImageName.parse("localstack/localstack:0.12.9.1")
+    /**
+     * TODO: Replace with regular release when 0.12.9.1+ is released.
+     */
+    val dockerImage: DockerImageName = DockerImageName.parse("localstack/localstack:latest")
+//    val dockerImage: DockerImageName = DockerImageName.parse("localstack/localstack:0.12.9.1")
 
     val credentialsProvider: StaticCredentialsProvider =
         StaticCredentialsProvider.create(AwsBasicCredentials.create("test-access-key", "test-secret-key"))
