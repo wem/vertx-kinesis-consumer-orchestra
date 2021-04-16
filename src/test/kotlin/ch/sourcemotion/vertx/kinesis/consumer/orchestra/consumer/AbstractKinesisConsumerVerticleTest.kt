@@ -342,7 +342,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
 
         vertx.setPeriodic(10) {
             defaultTestScope.launch {
-                kinesisClient.putRecordsExplicitHashKey(2 batchesOf 1)
+                kinesisClient.putRecordsExplicitHashKey(2 batchesOf 1, predefinedShards = streamDescription.shards())
             }
         }
     }
