@@ -254,13 +254,13 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private suspend fun deliver(records: List<Record>) {
         suspendCancellableCoroutine<Unit> { cont ->
-            onRecords(records, Handler {
+            onRecords(records) {
                 if (it.succeeded()) {
                     cont.resume(Unit)
                 } else {
                     cont.resumeWithException(it.cause())
                 }
-            })
+            }
         }
     }
 
