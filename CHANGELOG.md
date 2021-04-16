@@ -91,3 +91,10 @@ Take a look at `ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrc
 #### Fetcher metrics
 VKCO now supports fetcher records counter metrics (applied only on enhanced fanout at the moment). 
 Please check `ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions`
+
+## [0.0.9.1]
+### Maintenance
+#### Moved to Maven central
+Because Bintray will become recently deprecated, this project is now available on Maven central. Please check README.
+### Improved
+Some minor fixes and improvements.
