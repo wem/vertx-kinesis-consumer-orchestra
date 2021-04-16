@@ -1,12 +1,11 @@
-import com.jfrog.bintray.gradle.BintrayExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import java.util.*
 
 plugins {
     kotlin("jvm") version "1.4.32"
     kotlin("kapt") version "1.4.32"
-    id("com.jfrog.bintray") version "1.8.5"
+    id("org.jetbrains.dokka") version "1.4.30"
     `maven-publish`
+    signing
 }
 
 repositories {
@@ -117,33 +116,13 @@ tasks {
     }
 }
 
-val groupId = "ch.sourcemotion.vertx"
-val artifactId = "vertx-kinesis-consumer-orchestra"
-val publicationName = "vertxKinesisConsumerOrchestra"
+val publicationName = "VKCO"
 
-val bintrayUser: String by lazy {
-    "${findProperty("bintray_user")}"
+val publishUsername: String by lazy {
+    "${findProperty("ossrhUsername")}"
 }
-val bintrayApiKey: String by lazy {
-    "${findProperty("bintray_api_key")}"
-}
-
-bintray {
-    user = bintrayUser
-    key = bintrayApiKey
-    setPublications(publicationName)
-
-    pkg(closureOf<BintrayExtension.PackageConfig> {
-        repo = "maven"
-        name = artifactId
-        userOrg = "michel-werren"
-        vcsUrl = "https://github.com/wem/vertx-kinesis-consumer-orchestra"
-        version(closureOf<BintrayExtension.VersionConfig> {
-            name = "${project.version}"
-            released = "${Date()}"
-        })
-        setLicenses("MIT")
-    })
+val publishPassword: String by lazy {
+    "${findProperty("ossrhPassword")}"
 }
 
 val sourcesJar by tasks.registering(Jar::class) {
@@ -151,23 +130,68 @@ val sourcesJar by tasks.registering(Jar::class) {
     from(sourceSets.main.get().allSource)
 }
 
+val javadocJar by tasks.registering(Jar::class) {
+    dependsOn.add(tasks.dokkaJavadoc)
+    archiveClassifier.set("javadoc")
+    from("$buildDir/dokka/javadoc")
+}
+
+val publishUrl = if ("$version".endsWith("SNAPSHOT")) {
+    "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+} else {
+    "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+}
+
 publishing {
     publications {
-        register(publicationName, MavenPublication::class.java) {
+        repositories {
+            maven {
+                name = "ossrh"
+                setUrl(publishUrl)
+                credentials {
+                    username = publishUsername
+                    password = publishPassword
+                }
+            }
+        }
+
+        create(publicationName, MavenPublication::class.java) {
             from(components["java"])
             artifact(sourcesJar.get())
+            artifact(javadocJar.get())
+
             pom {
                 groupId = groupId
                 artifactId = artifactId
                 version = "${project.version}"
+                packaging = "jar"
+                name.set("Vert.x Kinesis consumer orchestra")
+                description.set("Reactive alternative to KCL, based on Vert.x and implemented in Kotlin")
+                url.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                scm {
+                    connection.set("scm:https://github.com/wem/vertx-kinesis-consumer-orchestra.git")
+                    developerConnection.set("scm:https://github.com/wem/vertx-kinesis-consumer-orchestra.git")
+                    url.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                }
                 licenses {
                     license {
                         name.set("The MIT License")
-                        url.set("http://www.opensource.org/licenses/MIT")
+                        url.set("https://www.opensource.org/licenses/MIT")
                         distribution.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("Michel Werren")
+                        name.set("Michel Werren")
+                        email.set("michel.werren@source-motion.ch")
                     }
                 }
             }
         }
     }
+}
+
+signing {
+    sign(publishing.publications[publicationName])
 }
