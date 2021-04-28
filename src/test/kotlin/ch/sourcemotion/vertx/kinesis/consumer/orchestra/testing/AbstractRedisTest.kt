@@ -3,7 +3,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.KGenericContainer.Companion.REDIS_PORT
@@ -121,7 +120,7 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
     protected suspend fun deployShardStatePersistenceService(
         shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
     ) {
-        val options = RedisShardStatePersistenceServiceVerticleOptions(
+        val options = RedisShardStatePersistenceServiceVerticle.Options(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
             redisHeimdallOptions,

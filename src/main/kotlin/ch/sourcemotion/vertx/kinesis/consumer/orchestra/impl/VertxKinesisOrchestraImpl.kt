@@ -14,7 +14,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyn
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.NettyKinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticleOptions
 import io.vertx.core.*
 import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
@@ -133,11 +132,12 @@ internal class VertxKinesisOrchestraImpl(
     }
 
     private suspend fun deployDefaultShardStatePersistence() {
-        val options = RedisShardStatePersistenceServiceVerticleOptions(
+        val options = RedisShardStatePersistenceServiceVerticle.Options(
             options.applicationName,
             options.streamName,
             options.redisOptions,
-            options.shardProgressExpiration.toMillis()
+            options.shardProgressExpiration.toMillis(),
+            options.scanCount
         )
         subsystemDeploymentIds.add(deployVerticle<RedisShardStatePersistenceServiceVerticle>(options))
     }
