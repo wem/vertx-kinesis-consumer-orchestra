@@ -25,7 +25,6 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
-import io.vertx.redis.client.ResponseType
 import io.vertx.redis.client.impl.types.ErrorType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -36,14 +35,12 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
 
     private companion object : KLogging()
 
-    private val serviceOptions by lazy(NONE) { config.mapTo(RedisShardStatePersistenceServiceVerticleOptions::class.java) }
+    private val options by lazy(NONE) { config.mapTo(Options::class.java) }
+
     private val redisKeyFactory by lazy(NONE) {
-        RedisKeyFactory(
-            serviceOptions.applicationName,
-            serviceOptions.streamName
-        )
+        RedisKeyFactory(options.applicationName, options.streamName)
     }
-    private val redisHeimdallOptions by lazy(NONE) { serviceOptions.redisHeimdallOptions }
+    private val redisHeimdallOptions by lazy(NONE) { options.redisHeimdallOptions }
 
     private var serviceRegistration: MessageConsumer<JsonObject>? = null
 
@@ -67,20 +64,18 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     }
 
     override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
-            val keyWildcard = redisKeyFactory.createShardProgressFlagKeyWildcard()
-            send(Request.cmd(Command.KEYS).arg(keyWildcard)).await()?.map {
-                // Remove the key part before the shardid
-                extractShardId(it.toString(Charsets.UTF_8))
-            } ?: emptyList()
-        }
+        val keyWildcardPattern = redisKeyFactory.createShardProgressFlagKeyWildcard()
+        val foundEntries = scanFor(keyWildcardPattern)
+        foundEntries.map { extractShardId(it) }
+    }
 
     override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
-            val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
-            send(
-                Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
-                    .arg(serviceOptions.shardProgressExpirationMillis.toString())
-            ).await()?.okResponseAsBoolean().isTrue()
-        }
+        val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
+        send(
+            Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
+                .arg(options.shardProgressExpirationMillis.toString())
+        ).await()?.okResponseAsBoolean().isTrue()
+    }
 
     override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) =
         withRetry(handler) {
@@ -133,23 +128,20 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         }
 
     override fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
-            val keyWildcard = redisKeyFactory.createShardFinishedRedisKeyWildcard()
-            send(Request.cmd(Command.KEYS).arg(keyWildcard)).await()?.let { response ->
-                if (response.type() != ResponseType.MULTI) {
-                    throw VertxKinesisConsumerOrchestraException(
-                        "List of finished shard keys returned unexpected type"
-                    )
-                }
-                response.map { extractShardId(it.toString(Charsets.UTF_8)) }
-            } ?: emptyList()
-        }
+        val keyWildcardPattern = redisKeyFactory.createShardFinishedRedisKeyWildcard()
+        val foundEntries = scanFor(keyWildcardPattern)
+        foundEntries.map { extractShardId(it) }
+    }
 
     override fun flagMergeParentReshardingReady(
         parentShardId: String,
         childShardId: String,
         handler: Handler<AsyncResult<Boolean>>
     ) = withRetry(handler) {
-        val key = redisKeyFactory.createMergeParentReadyToReshardKey(parentShardId.asShardIdTyped(), childShardId.asShardIdTyped())
+        val key = redisKeyFactory.createMergeParentReadyToReshardKey(
+            parentShardId.asShardIdTyped(),
+            childShardId.asShardIdTyped()
+        )
         val pattern = redisKeyFactory.createMergeParentReadyToReshardKeyWildcard(childShardId.asShardIdTyped())
         luaExecutor.execute(
             DefaultLuaScriptDescription.SET_VALUE_RETURN_KEY_COUNT_BY_PATTERN,
@@ -199,11 +191,26 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
             handler.handle(Future.failedFuture(VertxKinesisConsumerOrchestraException(cause = e)))
         }
     }
+
+    private suspend fun Redis.scanFor(pattern: String, cursor: Int = 0): List<String> {
+        val response = send(
+            Request.cmd(Command.SCAN).arg(cursor).arg("MATCH").arg(pattern).arg("COUNT").arg(options.scanCount)
+        ).await()
+        return if (response != null) {
+            val nextCursor = response.first().toInteger()
+            val foundEntries = response.last().map { it.toString(Charsets.UTF_8) }
+            if (nextCursor == 0) {
+                foundEntries
+            } else foundEntries + scanFor(pattern, nextCursor)
+        } else emptyList()
+    }
+
+    data class Options(
+        val applicationName: String,
+        val streamName: String,
+        val redisHeimdallOptions: RedisHeimdallOptions,
+        val shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
+        val scanCount: Int = 10 // Default value used by Redis
+    )
 }
 
-data class RedisShardStatePersistenceServiceVerticleOptions(
-    val applicationName: String,
-    val streamName: String,
-    val redisHeimdallOptions: RedisHeimdallOptions,
-    val shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
-)
