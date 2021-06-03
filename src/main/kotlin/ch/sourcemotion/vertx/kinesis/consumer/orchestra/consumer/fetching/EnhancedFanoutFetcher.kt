@@ -4,7 +4,10 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.EnhancedFanOutOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.FetchPosition
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import io.micrometer.core.instrument.Counter
 import io.vertx.core.Context
 import io.vertx.core.Vertx
@@ -51,6 +54,10 @@ internal class EnhancedFanoutFetcher(
     private val currentSequenceNumberRef = SequenceNumberRef(startingSequenceNumber)
     private var lastSubscriptionTimestamp: Long? = null
     private var running = false
+
+    // Internal state, mainly used for testing to avoid race conditions
+    var fetching = false
+        private set
     private var subscriptionControl: SubscriptionControl? = null
     private var job: Job? = null
 
@@ -59,6 +66,7 @@ internal class EnhancedFanoutFetcher(
             job = scope.launch {
                 val consumer = runCatching {
                     getOrRegisterConsumer().also {
+                        awaitConsumerActive()
                         cont.resume(Unit)
                         logger.info { "Enhanced fan out fetcher on stream \"${enhancedOptions.streamArn}\" and shard \"$shardId\" started" }
                     }
@@ -74,6 +82,7 @@ internal class EnhancedFanoutFetcher(
                     runCatching {
                         throttleSubscription()
                         val job = subscribeToShard(subscribeRequest)
+                        fetching = true
                         job.await()
                     }.onSuccess {
                         if (running) {
@@ -144,13 +153,11 @@ internal class EnhancedFanoutFetcher(
      * Executes the final subscription to a shard. Afterwards the [EventSubscriber.onNext] will get called for received
      * records.
      */
-    private suspend fun subscribeToShard(request: SubscribeToShardRequest): CompletableFuture<Void> {
-        awaitConsumerActive() // Wait until consumer (resource) becomes active.
-
+    private fun subscribeToShard(request: SubscribeToShardRequest): CompletableFuture<Void> {
         val responseHandler = SubscribeToShardResponseHandler.builder()
             .subscriber(Supplier {
                 EventSubscriber(
-                    vertx, context, scope, streamName, shardId, streamWriter, currentSequenceNumberRef, kinesis, metricCounter
+                    vertx, context, scope, streamName, shardId, streamWriter, currentSequenceNumberRef, metricCounter
                 ).also { this.subscriptionControl = it }
             })
             .build()
@@ -242,8 +249,14 @@ internal class EnhancedFanoutFetcher(
                 }
             }
             .build().also {
-                logger.info { "Subscribe to shard request on stream \"$streamName\" and shard \"$shardId\" contains " +
-                        "iterator type \"${it.startingPosition().typeAsString()}\" at sequence number \"${it.startingPosition().sequenceNumber()}\"" }
+                val startingPosition = it.startingPosition()
+                val startingPositionValue = startingPosition.typeAsString()
+                val sequenceNumber = startingPosition.sequenceNumber()
+                logger.info {
+                    "Subscribe to shard request on stream \"$streamName\" and shard \"$shardId\" contains " +
+                            "iterator type \"$startingPositionValue\" " +
+                            "at sequence number \"$sequenceNumber\""
+                }
             }
     }
 }
@@ -256,7 +269,6 @@ private class EventSubscriber(
     private val shardId: ShardId,
     private val streamWriter: RecordBatchStreamWriter,
     private val currentSequenceNumberRef: SequenceNumberRef,
-    private val kinesis: KinesisAsyncClient,
     private val metricCounter: Counter?
 ) : Subscriber<SubscribeToShardEventStream>, SubscriptionControl {
 
@@ -295,11 +307,6 @@ private class EventSubscriber(
             scope.launch {
                 runCatching { metricCounter?.increment(event.records().size.toDouble()) }
 
-                // continuationSequenceNumber could be empty / null if shard did end https://docs.aws.amazon.com/streams/latest/dev/building-enhanced-consumers-api.html
-                // -- Workaround for https://github.com/localstack/localstack/issues/3822
-                // The workaround covers the case of Localstack, where the continuationSequenceNumber is null on every
-                // event. Therefore we have check the shard state with an additional validation. If the shard is still
-                // on duty, we take the sequence number of the latest record in the event as continuationSequenceNumber.
                 val latestRecord = event.records().lastOrNull()
                 val continuationSequenceNumber = event.continuationSequenceNumber()
                 currentSequenceNumberRef.value = if (continuationSequenceNumber != null) {
@@ -313,15 +320,10 @@ private class EventSubscriber(
                         SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AT)
                     }
                 } else {
-                    if (isShardClosed()) {
-                        null
-                    } else {
-                        latestRecord?.let { SequenceNumber(it.sequenceNumber(), SequenceNumberIteratorPosition.AFTER) }
-                    }
+                    null
                 }
 
-                // -- end workaround
-                streamWriter.writeToStream(event.toBuilder().continuationSequenceNumber(currentSequenceNumberRef.value?.number).build())
+                streamWriter.writeToStream(event)
             }.invokeOnCompletion {
                 if (it != null) {
                     logger.warn(it) { "Unable to write event on stream \"$streamName\" and shard \"$shardId\" to record stream \"$event\"." }
@@ -332,17 +334,6 @@ private class EventSubscriber(
             logger.debug { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"." }
             doRequestOnSubscription()
         }
-    }
-
-    /**
-     * Workaround for https://github.com/localstack/localstack/issues/3822. We check also the shard ending sequence
-     * number in the case of the continuationSequenceNumber was null. So we can be sure the shard did really end.
-     */
-    private suspend fun isShardClosed() : Boolean {
-        val shard = kinesis.streamDescriptionWhenActiveAwait(streamName).shards().firstOrNull {
-            it.shardId() == "$shardId"
-        }
-        return shard == null || shard.sequenceNumberRange().endingSequenceNumber() != null
     }
 
     private fun doRequestOnSubscription() {
