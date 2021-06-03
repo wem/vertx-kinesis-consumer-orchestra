@@ -12,6 +12,7 @@ import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -85,12 +86,11 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         if (possibleShardCountToStartConsume <= 0 || detectionInProgress) return
         detectionInProgress = true
         launch {
-            val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
+            val existingShards = kinesisClient.listShards { it.streamName(options.clusterName.streamName) }.await().shards()
             val finishedShardIds = shardStatePersistence.getFinishedShardIds()
             val shardIdsInProgress = shardStatePersistence.getShardIdsInProgress()
             val unavailableShardIds = shardIdsInProgress + finishedShardIds
 
-            val existingShards = streamDescription.shards()
             val availableShards = existingShards
                 .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
 
