@@ -35,12 +35,11 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
         val orchestraOptions = VertxKinesisOrchestraOptions(
             TEST_APPLICATION_NAME,
             TEST_STREAM_NAME,
-            region = Localstack.region.id(),
-            credentialsProviderSupplier = { Localstack.credentialsProvider },
+            region = AWS_REGION,
+            credentialsProviderSupplier = { AWS_CREDENTIALS_PROVIDER },
             consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,
             redisOptions = redisHeimdallOptions,
             consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
-            kinesisClientOptions = KinesisClientOptions(kinesisEndpoint = getKinesisEndpointOverride()),
             loadConfiguration = LoadConfiguration.createConsumeExact(1, NOT_CONSUMED_SHARD_DETECTION_INTERVAL),
             fetcherOptions = fetcherOptions(streamDescription)
         )
@@ -61,7 +60,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
         }.completionHandlerAwait()
 
-        delay(5000)
+        delay(10000)
         kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
     }
 

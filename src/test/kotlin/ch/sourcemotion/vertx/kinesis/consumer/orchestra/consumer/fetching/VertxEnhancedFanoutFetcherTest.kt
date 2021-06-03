@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Disabled
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 
 @Disabled("There are issues with the Http/2 configuration. Those must first get identified and solved")
-internal class VertxEnhancedFanoutFetcherTest : AbstractEnhancedFanoutTest() {
+internal class VertxEnhancedFanoutFetcherTest : AbstractEnhancedFanoutFetcherTest() {
 
     override suspend fun prepareSut(streamDescription: StreamDescription): EnhancedFanoutFetcher {
         val enhancedFanOutOptions = EnhancedFanOutOptions(streamDescription.streamARN())

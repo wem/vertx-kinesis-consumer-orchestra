@@ -139,7 +139,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
     }
 
     @Test
-    internal fun shard_no_more_proceeded(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+    internal fun shard_no_more_in_progress(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val shardId = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first().shardIdTyped()
         shardStatePersistenceService.flagShardInProgress(shardId)
 
@@ -156,7 +156,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         deployConsumableShardDetectorVerticle(defaultOptions.copy(initialIteratorStrategy = ShardIteratorStrategy.FORCE_LATEST))
         sendShardsConsumedCountNotification(0)
         // We wait some detection rounds
-        delay(defaultOptions.detectionInterval * 2 + KINESIS_API_LATENCY_MILLIS)
+        delay(defaultOptions.detectionInterval * 10) // The requests against Kinesis could take longer, otherwise the flag get removed too early
 
         shardStatePersistenceService.flagShardNoMoreInProgress(shardId)
     }
@@ -165,6 +165,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
     internal fun one_split_child_already_consumed(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val parentShard = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first()
         kinesisClient.splitShardFair(parentShard)
+        kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) // We have to wait until stream get ACTIVE state, otherwise several detection runs will happen before child
         val childShardIds = listOf(ShardIdGenerator.generateShardId(1), ShardIdGenerator.generateShardId(2))
         shardStatePersistenceService.saveFinishedShard(parentShard.shardIdTyped(), Duration.ofHours(1).toMillis())
         // One split child is already in progress
@@ -189,6 +190,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
     internal fun split_children_detected_if_parent_finished(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val parentShard = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first()
         kinesisClient.splitShardFair(parentShard)
+        kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) // We have to wait until stream get ACTIVE state, otherwise several detection runs will happen before child
         val childShardIds = listOf(ShardIdGenerator.generateShardId(1), ShardIdGenerator.generateShardId(2))
         shardStatePersistenceService.saveFinishedShard(parentShard.shardIdTyped(), Duration.ofHours(1).toMillis())
 
@@ -246,6 +248,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         testContext.asyncDelayed(1) { checkpoint ->
             val parentShard = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first()
             kinesisClient.splitShardFair(parentShard)
+            kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) // We have to wait until stream get ACTIVE state, otherwise several detection runs will happen before child
 
             eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
                 val cmd = msg.body()
@@ -265,6 +268,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         testContext.asyncDelayed(1) { checkpoint ->
             val parentShards = kinesisClient.createAndGetStreamDescriptionWhenActive(2).shards()
             kinesisClient.mergeShards(parentShards)
+            kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) // We have to wait until stream get ACTIVE state, otherwise several detection runs will happen before child
 
             eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
                 val cmd = msg.body()
@@ -284,6 +288,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         testContext.asyncDelayed(1) { checkpoint ->
             val parentShards = kinesisClient.createAndGetStreamDescriptionWhenActive(2).shards()
             kinesisClient.mergeShards(parentShards)
+            kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) // We have to wait until stream get ACTIVE state, otherwise several detection runs will happen before child
             shardStatePersistenceService.saveFinishedShard(
                 parentShards.first().shardIdTyped(),
                 Duration.ofHours(1).toMillis()

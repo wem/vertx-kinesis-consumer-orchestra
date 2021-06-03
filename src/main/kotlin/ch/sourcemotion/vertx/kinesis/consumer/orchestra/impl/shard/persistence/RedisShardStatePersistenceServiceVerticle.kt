@@ -72,8 +72,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
         val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
         send(
-            Request.cmd(Command.SET).arg(key).arg("1").arg("PX")
-                .arg(options.shardProgressExpirationMillis.toString())
+            Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(options.shardProgressExpirationMillis)
         ).await()?.okResponseAsBoolean().isTrue()
     }
 

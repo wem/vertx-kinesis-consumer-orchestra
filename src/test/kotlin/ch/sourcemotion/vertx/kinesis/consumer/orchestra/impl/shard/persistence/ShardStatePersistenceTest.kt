@@ -34,7 +34,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
 
     @BeforeEach
     internal fun deployShardStatePersistenceService() = asyncBeforeOrAfter {
-        deployShardStatePersistenceService(DEFAULT_TEST_EXPIRATION_MILLIS)
+        deployRedisShardStatePersistenceServiceVerticle(DEFAULT_TEST_EXPIRATION_MILLIS)
     }
 
     @AfterEach

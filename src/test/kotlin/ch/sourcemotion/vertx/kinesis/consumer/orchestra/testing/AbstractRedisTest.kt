@@ -64,7 +64,7 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
     @BeforeEach
     internal fun deployShardStatePersistence() = asyncBeforeOrAfter {
         if (deployShardPersistence) {
-            deployShardStatePersistenceService()
+            deployRedisShardStatePersistenceServiceVerticle()
         }
     }
 
@@ -117,7 +117,7 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
         delay(2)
     }
 
-    protected suspend fun deployShardStatePersistenceService(
+    protected suspend fun deployRedisShardStatePersistenceServiceVerticle(
         shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
     ) {
         val options = RedisShardStatePersistenceServiceVerticle.Options(

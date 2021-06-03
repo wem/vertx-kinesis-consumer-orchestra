@@ -7,7 +7,7 @@ import software.amazon.awssdk.services.kinesis.model.StreamDescription
 internal class EnhancedFanoutComponentTest : AbstractComponentTest() {
     @BeforeEach
     internal fun setUpNettyKinesisClient() = asyncBeforeOrAfter {
-        vertx.shareNettyKinesisAsyncClientFactory(getKinesisEndpointOverride())
+        vertx.shareNettyKinesisAsyncClientFactory()
     }
 
     override fun fetcherOptions(streamDescription: StreamDescription): FetcherOptions {

@@ -105,7 +105,7 @@ tasks {
     withType<Test> {
         useJUnitPlatform()
         systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
-        environment(Pair("AWS_CBOR_DISABLE", "true"), Pair("CBOR_ENABLED", "false"), Pair("aws.cborEnabled", "false"))
+        environment("AWS_REGION" to findProperty("AWS_REGION"), "AWS_PROFILE" to findProperty("AWS_PROFILE"))
     }
 }
 

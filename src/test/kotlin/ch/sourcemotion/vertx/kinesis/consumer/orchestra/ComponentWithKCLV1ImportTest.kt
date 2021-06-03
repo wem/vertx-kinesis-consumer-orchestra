@@ -4,7 +4,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.getShardIteratorAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.LocalstackContainerTest.Companion.localStackContainer
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
@@ -16,25 +15,23 @@ import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
-import java.net.URI
 
+@Disabled
 internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
     companion object {
         const val RECORD_FAN_OUT_ADDR = "/kinesis/consumer/orchestra/fan-out"
-
-        private const val LEASE_TABLE_NAME = "kcl_lease"
         private const val RECORD_COUNT_AFTER_KCLV1_IMPORT = 100
     }
 
     private val dynamoDbClient by lazy {
         val builder = DynamoDbAsyncClient.builder().apply {
-            endpointOverride(URI(localStackContainer.getDynamoDBEndpointOverride()))
-            credentialsProvider(Localstack.credentialsProvider)
+            credentialsProvider(AWS_CREDENTIALS_PROVIDER)
         }
         VertxSdkClient.withVertx(builder, context).build()
     }
@@ -44,6 +41,11 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
     @BeforeEach
     internal fun setUpComponent() = asyncBeforeOrAfter {
         dynamoDbClient.forceCreateLeaseTable(LEASE_TABLE_NAME)
+    }
+
+    @AfterEach
+    internal fun tearDown() = asyncBeforeOrAfter {
+        dynamoDbClient.deleteTableIfExists(LEASE_TABLE_NAME)
     }
 
     @AfterEach
@@ -77,15 +79,11 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
                 vertx, VertxKinesisOrchestraOptions(
                     TEST_APPLICATION_NAME,
                     TEST_STREAM_NAME,
-                    credentialsProviderSupplier = { Localstack.credentialsProvider },
+                    credentialsProviderSupplier = { AWS_CREDENTIALS_PROVIDER },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
                     redisOptions = redisHeimdallOptions,
                     consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(AbstractComponentTest.PARAMETER_VALUE)),
-                    kinesisClientOptions = KinesisClientOptions(kinesisEndpoint = localStackContainer.getKinesisEndpointOverrideUri()),
-                    kclV1ImportOptions = KCLV1ImportOptions(
-                        leaseTableName = LEASE_TABLE_NAME,
-                        dynamoDbEndpoint = localStackContainer.getDynamoDBEndpointOverride()
-                    )
+                    kclV1ImportOptions = KCLV1ImportOptions(leaseTableName = LEASE_TABLE_NAME)
                 )
             ).start().await()
 

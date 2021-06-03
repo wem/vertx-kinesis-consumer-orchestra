@@ -100,5 +100,5 @@ internal class KCLV1Importer : CoroutineVerticle() {
 internal data class KCLV1ImporterOptions(
     val leaseTableName: String,
     val importAddress: String,
-    val dynamoDbEndpoint: String?
+    val dynamoDbEndpoint: String? = null
 )
