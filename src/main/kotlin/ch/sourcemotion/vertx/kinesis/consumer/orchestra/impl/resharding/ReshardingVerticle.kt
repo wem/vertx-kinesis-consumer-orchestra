@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.SequenceNumberRange
+import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.time.Duration
 import kotlin.LazyThreadSafetyMode.NONE
 
@@ -83,20 +84,17 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         sendLocalStartConsumerCmd(firstChildShardId)
     }
 
-    private suspend fun finishShardConsuming(
-        event: ReshardingEvent,
-        parentShardId: ShardId
-    ) {
-        persistChildShardsIterators(event)
-        saveFinishedShard(parentShardId)
+    private suspend fun finishShardConsuming(event: ReshardingEvent,parentShardId: ShardId) {
+        val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
+        persistChildShardsIterators(event, streamDescription)
+        saveFinishedShard(parentShardId, streamDescription)
         sendLocalStopShardConsumerCmd(parentShardId)
     }
 
     /**
      * A shard get flagged as finished here, as elsewhere it could be too early or to late.
      */
-    private suspend fun saveFinishedShard(shardId: ShardId) {
-        val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
+    private suspend fun saveFinishedShard(shardId: ShardId, streamDescription: StreamDescription) {
         // The expiration of the shard finished flag, will be an hour after the shard retention.
         // So it's ensured that we not lose the finished flag of this shard and avoid death data.
         val finishedFlagExpiration = Duration.ofHours(streamDescription.retentionPeriodHours().toLong() + 1).toMillis()
@@ -183,9 +181,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
      *
      * This happens here as this should be early as possible and the follow up workflow steps would be much more easier.
      */
-    private suspend fun persistChildShardsIterators(reshardingEvent: ReshardingEvent) {
-        val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
-
+    private suspend fun persistChildShardsIterators(reshardingEvent: ReshardingEvent, streamDescription: StreamDescription) {
         val childShardIds = when (reshardingEvent) {
             is MergeReshardingEvent -> {
                 listOf(reshardingEvent.childShardId)
