@@ -25,38 +25,27 @@ import java.math.BigInteger
  */
 const val KINESIS_API_LATENCY_MILLIS = 500
 
-fun Vertx.shareKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
-    val kinesisAsyncClientFactory =
-        KinesisAsyncClientFactory(
-            this,
-            Localstack.region.id(),
-            KinesisClientOptions(kinesisEndpoint = kinesisEndpointOverride)
-        )
-    SharedData.shareInstance(this, kinesisAsyncClientFactory, KinesisAsyncClientFactory.SHARED_DATA_REF)
+fun Vertx.shareKinesisAsyncClientFactory() {
+    val factory = KinesisAsyncClientFactory(this, AWS_REGION, KinesisClientOptions())
+    SharedData.shareInstance(this, factory, KinesisAsyncClientFactory.SHARED_DATA_REF)
 }
 
-fun Vertx.shareNettyKinesisAsyncClientFactory(kinesisEndpointOverride: String) {
-    val factory = NettyKinesisAsyncClientFactory(
-        this,
-        Localstack.region.id(),
-        KinesisClientOptions(kinesisEndpoint = kinesisEndpointOverride)
-    )
+fun Vertx.shareNettyKinesisAsyncClientFactory() {
+    val factory = NettyKinesisAsyncClientFactory(this, AWS_REGION, KinesisClientOptions())
     SharedData.shareInstance(this, factory, NettyKinesisAsyncClientFactory.SHARED_DATA_REF)
 }
 
 suspend fun KinesisAsyncClient.createAndGetStreamDescriptionWhenActive(
     shardCount: Int = 1,
-    streamName: String = TEST_STREAM_NAME
 ): StreamDescription {
     createStream {
-        it.streamName(streamName).shardCount(shardCount)
+        it.streamName(TEST_STREAM_NAME).shardCount(shardCount)
     }.await()
-    return streamDescriptionWhenActiveAwait(streamName)
+    return streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
 }
 
 suspend fun KinesisAsyncClient.putRecords(
     recordBatching: RecordPutBatching,
-    streamName: String = TEST_STREAM_NAME,
     recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
     partitionKeySupplier: (Int) -> String = { "partition-key_$it" }
 ) {
@@ -69,7 +58,7 @@ suspend fun KinesisAsyncClient.putRecords(
                 .build()
         }
         val putResponse = putRecords {
-            it.records(putRequestRecords).streamName(streamName)
+            it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
         }.await()
         putResponse.failedRecordCount().shouldBe(0)
     }
@@ -78,11 +67,10 @@ suspend fun KinesisAsyncClient.putRecords(
 suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
     recordBatching: RecordPutBatching,
     recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
-    streamName: String = TEST_STREAM_NAME,
     predefinedShards: ShardList? = null
 ) {
     // Count of record bundles must equal to the count of shards
-    val shards = predefinedShards ?: streamDescriptionWhenActiveAwait(streamName).shards()
+    val shards = predefinedShards ?: streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
     shards.shouldHaveSize(recordBatching.recordBatches)
 
     repeat(recordBatching.recordBatches) { bundleIdx ->
@@ -94,7 +82,7 @@ suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
                 .build()
         }.toList()
         val putResponse = putRecords {
-            it.records(putRequestRecords).streamName(streamName)
+            it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
         }.await()
         putResponse.failedRecordCount().shouldBe(0)
     }

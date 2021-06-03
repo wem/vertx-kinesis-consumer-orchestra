@@ -59,6 +59,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private lateinit var fetcher: Fetcher
     private lateinit var recordBatchReader: RecordBatchStreamReader
+    private var inProgressJobId: Long? = null
 
     override suspend fun start() {
         startConsumer()
@@ -68,6 +69,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         running = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         runCatching { fetcher.stop() }
+        runCatching { inProgressJobId?.let { vertx.cancelTimer(it) } }
         runCatching {
             shardStatePersistence.flagShardNoMoreInProgress(shardId)
         }.onSuccess { logger.info { "Kinesis consumer verticle stopped successfully on $consumerInfo" } }
@@ -118,7 +120,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private fun startShardInProgressKeepAlive() {
-        vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
+        inProgressJobId = vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
             launch {
                 if (running) {
                     shardStatePersistence.flagShardInProgress(options.shardId)

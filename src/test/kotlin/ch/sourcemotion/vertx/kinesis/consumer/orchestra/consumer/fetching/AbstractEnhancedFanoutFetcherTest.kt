@@ -11,15 +11,24 @@ import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import software.amazon.awssdk.services.kinesis.model.ResourceNotFoundException
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 
-internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest(false) {
+internal abstract class AbstractEnhancedFanoutFetcherTest : AbstractKinesisAndRedisTest(false) {
+
+    private lateinit var sut : EnhancedFanoutFetcher
+
+    @AfterEach
+    internal fun tearDown() = asyncBeforeOrAfter {
+        sut.stop()
+    }
 
     @Test
     internal fun consume_1000_records(testContext: VertxTestContext) = testContext.async(1000) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
-        val sut = prepareSut(streamDescription)
+        sut = prepareSut(streamDescription)
         sut.start()
         val streamReader = sut.streamReader
         launch {
@@ -31,14 +40,15 @@ internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest
             }
         }
 
-        delay(1000)
+        sut.awaitIsFetching()
+
         kinesisClient.putRecords(2 batchesOf 500)
     }
 
     @Test
     internal fun resharding(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
-        val sut = prepareSut(streamDescription)
+        sut = prepareSut(streamDescription)
         sut.start()
         val streamReader = sut.streamReader
 
@@ -59,17 +69,14 @@ internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest
             }
         }
 
-        vertx.setPeriodic(100) {
-            defaultTestScope.launch {
-                kinesisClient.putRecords(1 batchesOf 1)
-            }
-        }
+        sut.awaitIsFetching()
+        kinesisClient.putRecords(1 batchesOf 1)
     }
 
     @Test
     internal fun reset(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
-        val sut = prepareSut(streamDescription)
+        sut = prepareSut(streamDescription)
         sut.start()
         val streamReader = sut.streamReader
 
@@ -90,9 +97,16 @@ internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest
             }
         }
 
-        vertx.setPeriodic(100) {
+        sut.awaitIsFetching()
+
+        vertx.setPeriodic(100) { timerId ->
             defaultTestScope.launch {
-                kinesisClient.putRecords(1 batchesOf 100)
+                runCatching { kinesisClient.putRecords(1 batchesOf 100) }
+                    .onFailure {
+                        if (it is ResourceNotFoundException) {
+                            vertx.cancelTimer(timerId)
+                        }
+                    }
             }
         }
     }
@@ -104,7 +118,7 @@ internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest
     @Test
     internal fun stop(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
-        val sut = prepareSut(streamDescription)
+        sut = prepareSut(streamDescription)
         sut.start()
         val streamReader = sut.streamReader
 
@@ -118,10 +132,23 @@ internal abstract class AbstractEnhancedFanoutTest : AbstractKinesisAndRedisTest
             }
         }
 
-        vertx.setPeriodic(100) {
+        sut.awaitIsFetching()
+
+        vertx.setPeriodic(100) { timerId ->
             defaultTestScope.launch {
-                kinesisClient.putRecords(1 batchesOf 100)
+                runCatching { kinesisClient.putRecords(1 batchesOf 100) }
+                    .onFailure {
+                        if (it is ResourceNotFoundException) {
+                            vertx.cancelTimer(timerId)
+                        }
+                    }
             }
+        }
+    }
+
+    private suspend fun EnhancedFanoutFetcher.awaitIsFetching() {
+        while (fetching.not()){
+            delay(100)
         }
     }
 

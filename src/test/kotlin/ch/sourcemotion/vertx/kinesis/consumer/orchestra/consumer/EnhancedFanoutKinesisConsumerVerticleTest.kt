@@ -10,7 +10,7 @@ internal class EnhancedFanoutKinesisConsumerVerticleTest : AbstractKinesisConsum
 
     @BeforeEach
     internal fun setUpNettyKinesisClient() = asyncBeforeOrAfter {
-        vertx.shareNettyKinesisAsyncClientFactory(getKinesisEndpointOverride())
+        vertx.shareNettyKinesisAsyncClientFactory()
     }
 
     override fun fetcherOptions(streamDescription: StreamDescription): FetcherOptions {

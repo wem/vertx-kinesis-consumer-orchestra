@@ -43,6 +43,8 @@ dependencies {
 
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${libVersion("jackson")}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${libVersion("jackson")}")
+    api("com.fasterxml.jackson.dataformat:jackson-dataformat-xml") { version { strictly("${libVersion("jackson")}") } }
+    api("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor") { version { strictly("${libVersion("jackson")}") } }
     api("io.github.microutils:kotlin-logging:${libVersion("kotlin-logging")}")
 
     testImplementation(kotlin("test-junit"))
@@ -111,8 +113,7 @@ tasks {
     withType<Test> {
         useJUnitPlatform()
         systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
-        environment("AWS_CBOR_DISABLE" to "true", "CBOR_ENABLED" to "false", "aws.cborEnabled" to "false",
-            "DEFAULT_REGION" to "us-east-1")
+        environment("AWS_REGION" to findProperty("AWS_REGION"), "AWS_PROFILE" to findProperty("AWS_PROFILE"))
     }
 }
 

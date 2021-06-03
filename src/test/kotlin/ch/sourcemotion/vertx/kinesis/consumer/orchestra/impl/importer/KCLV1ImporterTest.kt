@@ -14,6 +14,7 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
@@ -21,17 +22,14 @@ import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException
 import java.util.*
 import kotlin.LazyThreadSafetyMode.NONE
 
-internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest {
+internal class KCLV1ImporterTest : AbstractVertxTest() {
     companion object {
-        private const val LEASE_TABLE_NAME = "kcl_lease"
-
         private const val IMPORTER_ADDR = "/testing/importer"
     }
 
     private val dynamoDbClient by lazy(NONE) {
         val builder = DynamoDbAsyncClient.builder().apply {
-            endpointOverride(getDynamoDbEndpointOverrideUri())
-            credentialsProvider(Localstack.credentialsProvider)
+            credentialsProvider(AWS_CREDENTIALS_PROVIDER)
         }
         VertxSdkClient.withVertx(builder, context).build()
     }
@@ -40,6 +38,11 @@ internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest 
     internal fun setUp() = asyncBeforeOrAfter {
         shareCredentialsProviders()
         dynamoDbClient.forceCreateLeaseTable(LEASE_TABLE_NAME)
+    }
+
+    @AfterEach
+    internal fun tearDown() = asyncBeforeOrAfter {
+        dynamoDbClient.deleteTableIfExists(LEASE_TABLE_NAME)
     }
 
     @Test
@@ -73,11 +76,7 @@ internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest 
         vertx.deployVerticleAwait(
             KCLV1Importer::class.java.name, deploymentOptionsOf(
                 config = JsonObject.mapFrom(
-                    KCLV1ImporterOptions(
-                        tableName,
-                        IMPORTER_ADDR,
-                        getDynamoDbEndpointOverride()
-                    )
+                    KCLV1ImporterOptions(tableName, IMPORTER_ADDR)
                 )
             )
         )
@@ -86,13 +85,13 @@ internal class KCLV1ImporterTest : AbstractVertxTest(), LocalstackContainerTest 
     private fun shareCredentialsProviders() {
         SharedData.shareInstance(
             vertx,
-            ShareableAwsCredentialsProvider(Localstack.credentialsProvider),
+            ShareableAwsCredentialsProvider(AWS_CREDENTIALS_PROVIDER),
             ShareableAwsCredentialsProvider.SHARED_DATA_REF
         )
 
         SharedData.shareInstance(
             vertx,
-            KCLV1ImporterCredentialsProvider(Localstack.credentialsProvider),
+            KCLV1ImporterCredentialsProvider(AWS_CREDENTIALS_PROVIDER),
             KCLV1ImporterCredentialsProvider.SHARED_DATA_REF
         )
     }

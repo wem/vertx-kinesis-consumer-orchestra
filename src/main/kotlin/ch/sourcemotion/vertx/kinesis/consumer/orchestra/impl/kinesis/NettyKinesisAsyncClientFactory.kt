@@ -20,7 +20,7 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 internal class NettyKinesisAsyncClientFactory(
     vertx: Vertx,
     region: String,
-    kinesisClientOptions: KinesisClientOptions,
+    kinesisClientOptions: KinesisClientOptions = KinesisClientOptions(),
     awsClientMetricOptions: AwsClientMetricOptions? = null,
     private val sdkNettyMaxConcurrency: Int? = null,
     private val sdkNettyMaxStreams: Long? = null
