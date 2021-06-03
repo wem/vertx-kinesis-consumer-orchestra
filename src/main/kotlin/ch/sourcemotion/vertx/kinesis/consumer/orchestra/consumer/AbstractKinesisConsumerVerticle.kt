@@ -5,10 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrch
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.Fetcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.adjacentParentShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.parentShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.ReshardingEvent
@@ -21,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import software.amazon.awssdk.services.kinesis.model.ChildShard
 import software.amazon.awssdk.services.kinesis.model.Record
 import kotlin.LazyThreadSafetyMode.NONE
 import kotlin.coroutines.resume
@@ -157,7 +155,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                         if (nextPosition != null) {
                             previousPosition = nextPosition
                         } else if (recordBatchReader.isEmpty()) {
-                            onResharding()
+                            onResharding(recordBatch.childShards)
                         }
                     } else if (positionToContinueAfterFailure != null) {
                         val sequenceNumberToContinueFrom = positionToContinueAfterFailure.sequenceNumber
@@ -218,7 +216,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
      * Called when the shard iterator of the consumed shard did return null. That state is the signal that the shard got
      * resharded and did end.
      */
-    private suspend fun onResharding() {
+    private suspend fun onResharding(childShards: List<ChildShard>) {
         // The shard consumed flag should stay true here, otherwise the shard could be consumed concurrently.
         logger.info {
             "Streaming on $consumerInfo ended because shard iterator did reach its end. Resharding did happen. " +
@@ -226,32 +224,14 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
         running = false
         runCatching { fetcher.stop() }
-        runCatching { createReshardingEvent() }
+        runCatching { ReshardingEvent.create(shardId, childShards.map { it.shardIdTyped() }) }
             .onSuccess { vertx.eventBus().send(EventBusAddr.resharding.notification, it) }
-            .onFailure { logger.warn(it) { "Unable to start resharding workflow properly. Try to self heal" } }
-    }
-
-    private suspend fun createReshardingEvent(attempt: Int = 0): ReshardingEvent {
-        if (attempt == 5) { // TODO: Make this configurable
-            vertx.eventBus().send(EventBusAddr.consumerControl.stopConsumerCmd, StopConsumerCmd(shardId))
-            throw VertxKinesisConsumerOrchestraException("Emergency consumer stop after 5 attempts to retrieve child shards of $consumerInfo")
-        }
-        val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
-        val shards = streamDescription.shards()
-        val childShardIds =
-            shards.filter { it.adjacentParentShardIdTyped() == options.shardId || it.parentShardIdTyped() == options.shardId }
-                .map { it.shardIdTyped() }
-        return ReshardingEvent.runCatching { create(shardId, childShardIds) }.getOrElse {
-            createReshardingEvent(attempt + 1)
-        }
+            .onFailure { logger.warn(it) { "Unable to start resharding workflow properly. Please restart this VKCO instance." } }
     }
 
 
     private suspend fun saveDeliveredSequenceNbr(sequenceNumber: SequenceNumber) =
-        shardStatePersistence.saveConsumerShardSequenceNumber(
-            shardId,
-            sequenceNumber
-        )
+        shardStatePersistence.saveConsumerShardSequenceNumber(shardId, sequenceNumber)
 
 
     private suspend fun deliver(records: List<Record>) {
