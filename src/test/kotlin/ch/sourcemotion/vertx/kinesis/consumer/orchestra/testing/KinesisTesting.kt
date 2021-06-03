@@ -46,7 +46,7 @@ suspend fun KinesisAsyncClient.createAndGetStreamDescriptionWhenActive(
 
 suspend fun KinesisAsyncClient.putRecords(
     recordBatching: RecordPutBatching,
-    recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
+    recordDataSupplier: (Int) -> SdkBytes = { suffix -> SdkBytes.fromUtf8String("record-data-$suffix") },
     partitionKeySupplier: (Int) -> String = { "partition-key_$it" }
 ) {
     repeat(recordBatching.recordBatches) { bunchIdx ->
@@ -66,7 +66,7 @@ suspend fun KinesisAsyncClient.putRecords(
 
 suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
     recordBatching: RecordPutBatching,
-    recordDataSupplier: (Int) -> SdkBytes = { count -> SdkBytes.fromUtf8String("record-data-$count") },
+    recordDataSupplier: (Int) -> SdkBytes = { suffix -> SdkBytes.fromUtf8String("record-data-$suffix") },
     predefinedShards: ShardList? = null
 ) {
     // Count of record bundles must equal to the count of shards
