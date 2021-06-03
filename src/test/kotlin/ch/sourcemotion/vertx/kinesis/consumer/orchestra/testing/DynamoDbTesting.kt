@@ -8,12 +8,24 @@ import software.amazon.awssdk.services.dynamodb.model.*
 
 suspend fun DynamoDbAsyncClient.deleteTableIfExists(tableName: String) {
     runCatching { describeTable { it.tableName(tableName) }.await() }
-        .onSuccess { deleteTable { builder -> builder.tableName(tableName) }.await() }
+        .onSuccess {
+            deleteTable { builder -> builder.tableName(tableName) }.await()
+        }
+
+    var deleted = false
+    while (deleted.not()) {
+        runCatching { describeTable { it.tableName(tableName) }.await() }
+            .onFailure {
+                if (it is ResourceNotFoundException) {
+                    deleted = true
+                }
+            }
+    }
 }
 
 suspend fun DynamoDbAsyncClient.forceCreateLeaseTable(tableName: String) {
     deleteTableIfExists(tableName)
-    val response = createTable { builder ->
+    createTable { builder ->
         builder.tableName(tableName).keySchema(
             KeySchemaElement.builder().keyType(KeyType.HASH).attributeName(KCLV1Importer.LEASE_KEY_ATTR)
                 .build()
@@ -21,11 +33,17 @@ suspend fun DynamoDbAsyncClient.forceCreateLeaseTable(tableName: String) {
             AttributeDefinition.builder().attributeName(KCLV1Importer.LEASE_KEY_ATTR)
                 .attributeType(ScalarAttributeType.S).build()
         ).provisionedThroughput(
-            ProvisionedThroughput.builder().writeCapacityUnits(10000).readCapacityUnits(10000).build()
+            ProvisionedThroughput.builder().writeCapacityUnits(5).readCapacityUnits(5).build()
         )
     }.await()
+    awaitTableActive(tableName)
+}
 
-    response.tableDescription().attributeDefinitions()
+private suspend fun DynamoDbAsyncClient.awaitTableActive(tableName: String) {
+    var status = describeTable { it.tableName(tableName) }.await().table().tableStatus()
+    while (status != TableStatus.ACTIVE) {
+        status = describeTable { it.tableName(tableName) }.await().table().tableStatus()
+    }
 }
 
 suspend fun DynamoDbAsyncClient.putLeases(tableName: String, vararg leases: Pair<ShardId, String>) {
