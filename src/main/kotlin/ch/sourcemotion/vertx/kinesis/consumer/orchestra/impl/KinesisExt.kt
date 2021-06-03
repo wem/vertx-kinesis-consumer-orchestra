@@ -1,7 +1,9 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import software.amazon.awssdk.services.kinesis.model.LimitExceededException
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import software.amazon.awssdk.services.kinesis.model.StreamStatus
@@ -12,9 +14,15 @@ import software.amazon.awssdk.services.kinesis.model.StreamStatus
  * has status [StreamStatus.ACTIVE] so we are based on actual state.
  */
 internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
-    var description = streamDescriptionAwait(streamName)
-    while (description.streamStatus() != StreamStatus.ACTIVE) {
-        description = streamDescriptionAwait(streamName)
+    var description: StreamDescription? = streamDescriptionAwait(streamName)
+    while (description?.streamStatus() != StreamStatus.ACTIVE) {
+        delay(100) // 10 TX are allowed per second
+        description = runCatching { streamDescriptionAwait(streamName) }.getOrElse {
+            if (it is LimitExceededException) {
+                delay(300)
+            }
+            null
+        }
     }
     return description
 }
