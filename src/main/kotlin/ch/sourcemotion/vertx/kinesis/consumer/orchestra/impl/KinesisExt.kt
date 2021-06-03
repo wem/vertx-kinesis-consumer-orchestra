@@ -14,9 +14,8 @@ import software.amazon.awssdk.services.kinesis.model.StreamStatus
  * has status [StreamStatus.ACTIVE] so we are based on actual state.
  */
 internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamName: String): StreamDescription {
-    var description: StreamDescription? = streamDescriptionAwait(streamName)
+    var description: StreamDescription? = null
     while (description?.streamStatus() != StreamStatus.ACTIVE) {
-        delay(100) // 10 TX are allowed per second
         description = runCatching { streamDescriptionAwait(streamName) }.getOrElse {
             if (it is LimitExceededException) {
                 delay(300)
