@@ -12,16 +12,15 @@ import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.kinesis.model.Record
 import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
 
-@Disabled
 internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
     companion object {
@@ -94,6 +93,8 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
                     checkpoint.flag()
                 }
             }
+
+            delay(10000)
 
             kinesisClient.putRecords(1 batchesOf RECORD_COUNT_AFTER_KCLV1_IMPORT)
         }

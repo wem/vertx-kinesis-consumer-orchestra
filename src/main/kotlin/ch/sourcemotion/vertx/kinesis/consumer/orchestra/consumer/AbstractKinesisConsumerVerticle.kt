@@ -3,6 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.Fetcher
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatch
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
@@ -109,7 +110,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
         recordBatchReader = fetcher.streamReader
 
-        runCatching { beginFetching(startFetchPosition) }
+        runCatching { beginFetching() }
             .getOrElse {
                 throw VertxKinesisConsumerOrchestraException("Unable to begin fetching on \"$consumerInfo\"", it)
             }
@@ -127,8 +128,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun beginFetching(startPosition: FetchPosition) {
-        var previousPosition: FetchPosition = startPosition
+    private fun beginFetching() {
         running = true
         launch {
             while (running) {
@@ -136,35 +136,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                     recordBatchReader.readFromStream()
                 }.onSuccess { recordBatch ->
                     val records = recordBatch.records
-
-                    val (successfullyDelivered, positionToContinueAfterFailure) = deliverWithFailureHandling(
-                        records,
-                        previousPosition
-                    )
-
-                    if (successfullyDelivered) {
-                        val latestSequenceNumber = recordBatch.sequenceNumber
-                        val nextPosition = if (recordBatch.nextShardIterator != null) {
-                            FetchPosition(recordBatch.nextShardIterator, latestSequenceNumber)
-                        } else null // Means shard got resharded and did end
-
-                        if (latestSequenceNumber.isNotNull()) {
-                            saveDeliveredSequenceNbr(latestSequenceNumber)
-                        }
-
-                        if (nextPosition != null) {
-                            previousPosition = nextPosition
-                        } else if (recordBatchReader.isEmpty()) {
-                            onResharding(recordBatch.childShards)
-                        }
-                    } else if (positionToContinueAfterFailure != null) {
-                        val sequenceNumberToContinueFrom = positionToContinueAfterFailure.sequenceNumber
-                        if (sequenceNumberToContinueFrom != null) {
-                            saveDeliveredSequenceNbr(sequenceNumberToContinueFrom)
-                        }
-                        fetcher.resetTo(positionToContinueAfterFailure)
-                        previousPosition = positionToContinueAfterFailure
-                    } // In the case of a failed delivery and the position to continue after failure, we simple continue.
+                    tryDeliverRecords(records, recordBatch)
                 }.onFailure { throwable ->
                     logger.warn(throwable) { "Failure during fetching records on $consumerInfo ... but will continue" }
                 }
@@ -173,33 +145,58 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         }
     }
 
-    private suspend fun deliverWithFailureHandling(
-        records: List<Record>,
-        previousPosition: FetchPosition
-    ): Pair<Boolean, FetchPosition?> = runCatching {
-        deliver(records)
-        true to null
-    }.getOrElse { throwable ->
-        false to handleConsumerFailure(throwable, previousPosition)
+    private suspend fun tryDeliverRecords(records: List<Record>, recordBatch: RecordBatch) {
+        val (successfullyDelivered, recordsToRetry) = deliverWithFailureHandling(records)
+
+        if (successfullyDelivered) {
+            val latestSequenceNumber = recordBatch.sequenceNumber
+            val nextPosition = if (recordBatch.nextShardIterator != null) {
+                FetchPosition(recordBatch.nextShardIterator, latestSequenceNumber)
+            } else null // Means shard got resharded and did end
+
+            if (latestSequenceNumber.isNotNull()) {
+                saveDeliveredSequenceNbr(latestSequenceNumber)
+            }
+
+            if (nextPosition == null && recordBatchReader.isEmpty()) {
+                onResharding(recordBatch.childShards)
+            }
+        } else if (recordsToRetry.isNotEmpty()) {
+            val firstRecordToRetry = recordsToRetry.first()
+            val lastSuccessful = records.toList().takeWhile { it.sequenceNumber() != firstRecordToRetry.sequenceNumber() }.lastOrNull()
+            if (lastSuccessful != null) {
+                saveDeliveredSequenceNbr(lastSuccessful.sequenceNumber().asSequenceNumberAfter())
+            }
+            tryDeliverRecords(recordsToRetry, recordBatch)
+        } else {
+            records.lastOrNull()?.let {
+                saveDeliveredSequenceNbr(it.sequenceNumber().asSequenceNumberAfter())
+            }
+        }
     }
 
-    private suspend fun handleConsumerFailure(
+    private suspend fun deliverWithFailureHandling(
+        records: List<Record>,
+    ): Pair<Boolean, List<Record>> = runCatching {
+        deliver(records)
+        true to emptyList<Record>()
+    }.getOrElse { throwable ->
+        false to handleConsumerFailure(throwable, records)
+    }
+
+    private fun handleConsumerFailure(
         throwable: Throwable,
-        previousPosition: FetchPosition
-    ): FetchPosition? {
+        records: List<Record>
+    ): List<Record> {
         return if (shouldRetryFromFailedRecord(throwable)) {
             if (throwable is KinesisConsumerException) {
                 val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
-                val iteratorAtFailedSequence = kinesisClient.getShardIteratorBySequenceNumberAwait(
-                    options.clusterName.streamName,
-                    shardId,
-                    failedSequence
-                )
                 logger.debug {
                     "Record processing did fail on \"$consumerInfo\". All information available to retry" +
                             "from failed record."
                 }
-                FetchPosition(iteratorAtFailedSequence, failedSequence)
+                val failedRecordIdx = records.indexOfFirst { it.sequenceNumber() == failedSequence.number }
+                return records.toList().subList(failedRecordIdx, records.size)
             } else { // Retry from last successful shard iterator
                 logger.warn(throwable) {
                     "Kinesis consumer configured to retry from failed record, but no record " +
@@ -207,9 +204,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
                             "To retry consume, beginning from failed record you must throw an exception of type " +
                             "\"${KinesisConsumerException::class.java.name}\", so we retry from latest successful fetch position"
                 }
-                previousPosition
+                records
             }
-        } else null // Fallback: Ignore and continue
+        } else emptyList() // Fallback: Ignore and continue
     }
 
     /**

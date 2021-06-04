@@ -29,7 +29,6 @@ import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.kinesis.model.Record
@@ -69,7 +68,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         }
     }
 
-    @Disabled("https://github.com/localstack/localstack/issues/3823")
     @Test
     internal fun consumer_retry_on_failure_by_configuration(vertx: Vertx, testContext: VertxTestContext) {
         val recordBatching =
@@ -109,7 +107,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         }
     }
 
-    @Disabled("https://github.com/localstack/localstack/issues/3823")
     @Test
     internal fun consumer_retry_on_failure_by_exception_override(vertx: Vertx, testContext: VertxTestContext) {
         val recordBatching =
@@ -226,7 +223,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
      * If the orchestra is configured to retry from failed record, but a failure (Exception) not contains the necessary
      * information (record), the orchestra will retry beginning from the previous iterator.
      */
-    @Disabled("https://github.com/localstack/localstack/issues/3823")
     @Test
     internal fun consumer_retry_from_failed_configured_but_wrong_exception(
         vertx: Vertx,
