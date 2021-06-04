@@ -98,3 +98,19 @@ Please check `ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions`
 Because Bintray will become recently deprecated, this project is now available on Maven central. Please check README.
 ### Improved
 Some minor fixes and improvements.
+
+## [0.0.9.2]
+### Fixed
+#### #27 Use of SCAN instead of KEYS
+To get a list of keys from Redis we now strictly use SCAN instead of KEYS to avoid longer blocked server.
+### Maintenance
+#### Moved from Localstack back to AWS
+Localstack lacks of some features, especially on the Kinesis service. E.g. childShards variables not filled on record events or responses.
+So from now, the tests are more representative and valid.
+### Improved
+#### Error handling
+If a record processing error will get thrown back to VKCO, we don't read the records again, but directly re-deliver.
+#### Resharding
+Resharding mechanism / workflow improved and hardened. Only a few of requests against Kinesis used during resharding.
+#### Limit exceeded handled
+At some points we could run into some Kinesis request count per time limits. This is now (better) handled.
