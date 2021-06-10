@@ -40,7 +40,6 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
 
     @Test
     internal fun writer_suspend_on_pre_fetch_limit_exceeded(testContext: VertxTestContext) = testContext.async {
-
         val stream = RecordBatchStream(PREFETCH_LIMIT)
         val writer = stream.writer()
         val reader = stream.reader()
@@ -52,12 +51,14 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
         }
         delay(10)
         continuedAfterWriteToStream.shouldBeFalse()
-        reader.readFromStream().verifyAgainstResponse(response, PREFETCH_LIMIT + 1) // Writer should get resumed on this call
+        reader.readFromStream()
+            .verifyAgainstResponse(response, PREFETCH_LIMIT, lastRecordInResponseIdx = 9) // Writer should get resumed on this call
         delay(10)
         continuedAfterWriteToStream.shouldBeTrue()
         val responseAfterResume = getRecordResponse(recordCount = 3)
         writer.writeToStream(responseAfterResume)
-        reader.readFromStream().verifyAgainstResponse(responseAfterResume, 3)
+        reader.readFromStream()
+            .verifyAgainstResponse(responseAfterResume, 4, listOf(10, 0, 1, 2)) // One record left from first response
     }
 
     @Test
@@ -131,22 +132,29 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
         batch.verifyAgainstResponse(response, expectedBatchSize)
     }
 
-    private fun RecordBatch.verifyAgainstResponse(response: GetRecordsResponse, expectedRecordCount: Int) {
+    private fun RecordBatch.verifyAgainstResponse(
+        response: GetRecordsResponse,
+        expectedRecordCount: Int,
+        expectedIdxs: List<Int>? = null,
+        lastRecordInResponseIdx: Int? = null,
+    ) {
         nextShardIterator.shouldBe(ShardIterator(response.nextShardIterator()))
         millisBehindLatest.shouldBe(response.millisBehindLatest())
+        records.verify(expectedRecordCount, expectedIdxs)
         sequenceNumber.shouldBe(
-            SequenceNumber(
-                response.records().last().sequenceNumber(),
+            SequenceNumber(lastRecordInResponseIdx?.let { response.records()[it].sequenceNumber() }
+                ?: response.records().last().sequenceNumber(),
                 SequenceNumberIteratorPosition.AFTER
             )
         )
-        records.verify(expectedRecordCount)
         resharded.shouldBeFalse()
     }
 
-    private fun List<Record>.verify(expectedRecordCount: Int) {
+    private fun List<Record>.verify(expectedRecordCount: Int, expectedIdxs: List<Int>? = null) {
         shouldHaveSize(expectedRecordCount)
-        map { it.data() }.shouldContainExactly(IntRange(0, expectedRecordCount - 1).map { recordData(it) })
+        val expectedRecordData =
+            expectedIdxs?.map { recordData(it) } ?: IntRange(0, expectedRecordCount - 1).map { recordData(it) }
+        map { it.data() }.shouldContainExactly(expectedRecordData)
     }
 
     private fun nextShardIterator() = ShardIterator("${UUID.randomUUID()}")
@@ -175,6 +183,7 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
     private fun record(idx: Int) = mock<Record> {
         on { data() } doReturn recordData(idx)
         on { sequenceNumber() } doReturn "${UUID.randomUUID()}"
+        on { toString() } doReturn recordData(idx).asUtf8String()
     }
 
     private fun recordData(idx: Int) = SdkBytes.fromUtf8String("record-$idx")

@@ -77,7 +77,7 @@ internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
             val entries = ArrayList<ResponseEntry>().apply {
                 add(responseEntryChannel.receive())
             }
-            while (responseEntryChannel.isEmpty.not()) {
+            while (responseEntryChannel.isEmpty.not() && entries.size < recordsPreFetchLimit) {
                 entries.add(responseEntryChannel.receive())
             }
             val latestEntry = entries.last() // There must be at least one
