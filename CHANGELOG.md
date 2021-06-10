@@ -114,3 +114,13 @@ If a record processing error will get thrown back to VKCO, we don't read the rec
 Resharding mechanism / workflow improved and hardened. Only a few of requests against Kinesis used during resharding.
 #### Limit exceeded handled
 At some points we could run into some Kinesis request count per time limits. This is now (better) handled.
+
+## [0.0.9.3]
+### Fixed
+#### Too large batches
+On some circumstances, the batch size can grove near limitless. Now the delivered batch size is limited consumer side to recordsPreFetchLimit as well.  
+#### Parallel subscriber requests on Enhanced fanout
+Workaround removed which did cover the scenario when Localstack did not deliver records immediately after first request.  
+### Maintenance
+#### Cleanup
+Unused resetTo function removed on fetcher(s).
