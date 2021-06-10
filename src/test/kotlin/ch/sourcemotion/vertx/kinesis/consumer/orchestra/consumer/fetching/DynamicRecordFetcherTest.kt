@@ -15,7 +15,6 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.longs.shouldBeBetween
 import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.nulls.shouldBeNull
-import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.delay
 import org.junit.jupiter.api.RepeatedTest
@@ -64,21 +63,6 @@ internal class DynamicRecordFetcherTest : AbstractVertxTest() {
                 }
             }
         }
-    }
-
-    @Test
-    internal fun reset(testContext: VertxTestContext) = testContext.async {
-        var reset = false
-        val kinesisClient = kinesisClient {
-            if (reset) {
-                getRecordsResponse(recordList(1), dummyFetchPosition.iterator)
-            } else getRecordsResponse(recordList(1))
-        }
-        val sut = DynamicRecordFetcher(FetcherOptions(), dummyFetchPosition, this, STREAM, shardId, kinesisClient)
-        sut.start()
-        sut.resetTo(dummyFetchPosition)
-        reset = true
-        sut.streamReader.readFromStream().nextShardIterator.shouldBe(dummyFetchPosition.iterator)
     }
 
 

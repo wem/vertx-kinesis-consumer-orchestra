@@ -112,13 +112,6 @@ internal class EnhancedFanoutFetcher(
         }
     }
 
-    override fun resetTo(fetchPosition: FetchPosition) {
-        streamWriter.resetStream()
-        currentSequenceNumberRef.value = fetchPosition.sequenceNumber
-        cancelSubscription()
-        logger.info { "Record fetcher reset on stream \"$streamName\" / shard \"$shardId\"" }
-    }
-
     override suspend fun stop() {
         running = false
         cancelSubscription()

@@ -51,13 +51,6 @@ internal class DynamicRecordFetcher(
         job.join()
     }
 
-    override fun resetTo(fetchPosition: FetchPosition) {
-        streamWriter.resetStream()
-        skipNextResponse = true
-        currentPosition = fetchPosition
-        logger.info { "Record fetcher reset on stream \"$streamName\" / shard \"$shardId\"" }
-    }
-
     private suspend fun fetch() {
         while (running) {
             skipNextResponse = false // If the reset did happen before here, it's not relevant.

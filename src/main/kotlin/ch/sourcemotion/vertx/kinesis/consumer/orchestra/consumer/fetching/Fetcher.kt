@@ -61,6 +61,4 @@ internal interface Fetcher {
     val streamReader: RecordBatchStreamReader
     suspend fun start()
     suspend fun stop()
-
-    fun resetTo(fetchPosition: FetchPosition)
 }
