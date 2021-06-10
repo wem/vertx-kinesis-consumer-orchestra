@@ -3,7 +3,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.EnhancedFanOutOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.FetchPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterName
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
@@ -270,36 +269,18 @@ private class EventSubscriber(
     private lateinit var subscription: Subscription
 
     private var finished = false
-    private var firstRecordReceived = false
-    private var additionalRequestCheckTimerId: Long? = null
 
     override fun onSubscribe(s: Subscription) {
         context.runOnContext {
             this.subscription = s
             subscription.request(1)
-            logger.debug { "Event subscriber started on stream \"$streamName\" and shard \"$shardId\". Await events" }
-            // TODO check if really needed
-            additionalRequestCheckTimerId = vertx.setPeriodic(500) {
-                if (firstRecordReceived.not() && finished.not()) {
-                    subscription.request(1)
-                } else {
-                    vertx.runCatching { cancelTimer(it) }
-                    additionalRequestCheckTimerId = null
-                }
-            }
+            logger.debug { "Event subscriber started on stream \"$streamName\" and shard \"$shardId\"." }
         }
     }
 
     override fun onNext(event: SubscribeToShardEventStream) {
-        if (firstRecordReceived.not()) {
-            logger.debug { "Begin to receive events on stream \"$streamName\" and shard \"$shardId\"." }
-            firstRecordReceived = true
-        }
         if (event is SubscribeToShardEvent) {
-
             scope.launch {
-                runCatching { metricCounter?.increment(event.records().size.toDouble()) }
-
                 val latestRecord = event.records().lastOrNull()
                 val continuationSequenceNumber = event.continuationSequenceNumber()
                 currentSequenceNumberRef.value = if (continuationSequenceNumber != null) {
@@ -317,19 +298,20 @@ private class EventSubscriber(
                 }
 
                 streamWriter.writeToStream(event)
+                runCatching { metricCounter?.increment(event.records().size.toDouble()) }
             }.invokeOnCompletion {
                 if (it != null) {
                     logger.warn(it) { "Unable to write event on stream \"$streamName\" and shard \"$shardId\" to record stream \"$event\"." }
                 }
-                doRequestOnSubscription()
+                requestForNextEvent()
             }
         } else {
             logger.debug { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"." }
-            doRequestOnSubscription()
+            requestForNextEvent()
         }
     }
 
-    private fun doRequestOnSubscription() {
+    private fun requestForNextEvent() {
         if (finished.not()) {
             subscription.request(1)
         }
@@ -355,15 +337,7 @@ private class EventSubscriber(
     }
 
     private fun finish() {
-        if (finished.not()) {
-            finished = true
-            cancelTimers()
-        }
-    }
-
-    private fun cancelTimers() {
-        additionalRequestCheckTimerId?.let { vertx.runCatching { cancelTimer(it) } }
-        additionalRequestCheckTimerId = null
+        finished = true
     }
 }
 
