@@ -11,7 +11,7 @@ internal class EnhancedFanoutComponentTest : AbstractComponentTest() {
     }
 
     override fun fetcherOptions(streamDescription: StreamDescription): FetcherOptions {
-        val enhancedFanOutOptions = EnhancedFanOutOptions(streamDescription.streamARN())
+        val enhancedFanOutOptions = EnhancedFanOutOptions(streamDescription.streamARN(), sdkNettyMaxConcurrency = 100)
         return FetcherOptions(enhancedFanOut = enhancedFanOutOptions)
     }
 }
