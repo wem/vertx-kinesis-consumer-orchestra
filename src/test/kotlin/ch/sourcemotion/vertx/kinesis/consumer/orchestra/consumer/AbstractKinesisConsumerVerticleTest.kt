@@ -63,7 +63,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 )
             )
 
-            delay(1000)
+            delay(10000)
             kinesisClient.putRecords(recordBatching)
         }
     }
@@ -103,6 +103,8 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 )
             )
 
+            delay(10000)
+
             kinesisClient.putRecords(recordBatching)
         }
     }
@@ -141,6 +143,9 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                     errorHandling = ErrorHandling.IGNORE_AND_CONTINUE
                 )
             )
+
+            delay(10000)
+
             kinesisClient.putRecords(recordBatching)
         }
     }
@@ -176,7 +181,8 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 )
             )
 
-            delay(1000)
+            delay(10000)
+
             kinesisClient.putRecords(1 batchesOf 1)
         }
     }
@@ -214,7 +220,8 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 )
             )
 
-            delay(1000)
+            delay(10000)
+
             kinesisClient.putRecords(1 batchesOf 1)
         }
     }
@@ -257,6 +264,8 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                     errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
                 )
             )
+
+            delay(10000)
 
             kinesisClient.putRecords(recordBatching)
         }
