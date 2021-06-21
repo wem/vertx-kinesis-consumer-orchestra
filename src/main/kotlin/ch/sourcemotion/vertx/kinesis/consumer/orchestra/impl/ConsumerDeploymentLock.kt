@@ -43,7 +43,7 @@ internal class ConsumerDeploymentLock(
         if (releaseLock(deploymentKey).isFalse()) {
             logger.warn {
                 "Unable to release deployment lock: \"$deploymentKey\". " +
-                        "But this is not critical as the lock has an expiration of $lockExpiration"
+                        "In worst case, this may result in simultaneous consumers of a single shard"
             }
         }
 
@@ -55,7 +55,7 @@ internal class ConsumerDeploymentLock(
             DefaultLuaScriptDescription.ACQUIRE_DEPLOYMENT_LOCK, keys = luaKeys, args = luaArgs
         )
         if (lockAcquisitionResponse.okResponseAsBoolean().isFalse()) {
-            logger.debug { "Unable to acquire lock on $deploymentKey will wait for $lockRetryInterval and retry" }
+            logger.info { "Unable to acquire lock on $deploymentKey will wait for $lockRetryInterval and retry" }
             delay(lockRetryInterval.toMillis())
             acquireLock(deploymentKey, luaKeys, luaArgs)
         }
