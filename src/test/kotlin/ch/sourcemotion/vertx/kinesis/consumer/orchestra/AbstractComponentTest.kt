@@ -54,45 +54,65 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
         kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
     }
 
-    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     @Test
-    internal fun split_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 2) { checkpoint ->
-        val streamDescription = createStreamAndDeployVKCO(4, 8)
+    internal fun split_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 12) { checkpoint ->
+        var receivedRecords = 0
         eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
             val fanoutMessage = msg.body()
+            receivedRecords += fanoutMessage.recordCount
             repeat(fanoutMessage.recordCount) { checkpoint.flag() }
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
         }.completionHandlerAwait()
 
-        delay(10000)
-        kinesisClient.putRecords(RECORD_COUNT batchesOf 1)
-        streamDescription.shards().forEach { shard ->
+        val streamDescriptionBeforeSplit = createStreamAndDeployVKCO(4, 8)
+
+        delay(20000)
+
+        val parentShards = streamDescriptionBeforeSplit.shards()
+        kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+
+        parentShards.forEach { shard ->
             kinesisClient.splitShardFair(shard)
-            kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+            delay(10000) // We have to wait until parent shard get really closed
+            val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+            val childShards = streamDescriptionAfterSplit.shards().filter { it.parentShardId() == shard.shardId() }
+            kinesisClient.putRecordsExplicitHashKey(2 batchesOf RECORD_COUNT, predefinedShards = childShards)
+            logger.info { "Split of shard ${shard.shardId()} done" }
         }
-        kinesisClient.putRecords(RECORD_COUNT batchesOf 1)
     }
 
-    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     @Test
-    internal fun merge_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 2) { checkpoint ->
-        val streamDescription = createStreamAndDeployVKCO(4, 4)
+    internal fun merge_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 6) { checkpoint ->
+        var receivedRecords = 0
         eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
             val fanoutMessage = msg.body()
+            receivedRecords += fanoutMessage.recordCount
             repeat(fanoutMessage.recordCount) { checkpoint.flag() }
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
         }.completionHandlerAwait()
 
-        delay(10000)
-        kinesisClient.putRecords(RECORD_COUNT batchesOf 1)
-        val shards = streamDescription.shards().iterator()
+        val streamDescriptionBeforeMerge = createStreamAndDeployVKCO(4, 4)
+
+        delay(20000)
+
+        val parentShards = streamDescriptionBeforeMerge.shards()
+        kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+
+        val shards = parentShards.iterator()
         while (shards.hasNext()) {
             val parent = shards.next()
             val adjacentParent = shards.next()
             kinesisClient.mergeShards(parent, adjacentParent)
-            kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+            delay(10000) // We have to wait until parent shard get really closed
+            val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+            val childShard = streamDescriptionAfterSplit.shards()
+                .first { it.parentShardId() == parent.shardId() && it.adjacentParentShardId() == adjacentParent.shardId() }
+            kinesisClient.putRecordsExplicitHashKey(1 batchesOf RECORD_COUNT, predefinedShards = listOf(childShard))
+
+            logger.info { "Merge of shards ${parent.shardId()} / ${adjacentParent.shardId()} done" }
         }
-        kinesisClient.putRecords(RECORD_COUNT batchesOf 1)
     }
 
     private suspend fun createStreamAndDeployVKCO(shardCount: Int = 1, consumerCount: Int = 1): StreamDescription {
