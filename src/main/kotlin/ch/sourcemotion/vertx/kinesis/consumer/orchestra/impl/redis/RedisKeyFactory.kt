@@ -10,12 +10,10 @@ internal class RedisKeyFactory(private val clusterName: OrchestraClusterName) {
     constructor(applicationName: String, streamName: String): this(OrchestraClusterName(applicationName, streamName))
 
     fun createShardProgressFlagKey(shardId: ShardId): String = "${shardProgressKeyBase}$shardId"
-    fun createShardProgressFlagKeyWildcard(): String = "${shardProgressKeyBase}*"
 
     fun createShardSequenceNumberKey(shardId: ShardId): String = "$clusterName-sequence-$shardId"
 
     fun createShardFinishedKey(shardId: ShardId): String = "$shardFinishedKeyBase$shardId"
-    fun createShardFinishedRedisKeyWildcard(): String = "$shardFinishedKeyBase*"
 
     fun createDeploymentLockKey() = "$clusterName-deployment-lock"
 

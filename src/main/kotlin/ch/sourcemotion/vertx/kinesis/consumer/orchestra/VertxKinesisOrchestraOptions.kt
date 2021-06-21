@@ -56,17 +56,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     val shardProgressExpiration: Duration = Duration.ofMillis(DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS),
 
     /**
-     * VKCO is using SCAN commands against Redis to find all shards in progress or finished. This value will adjust
-     * the  count of max. returned entries per SCAN call. A higher number will block your Redis server a longer time
-     * per call but a lesser amount of calls are needed. A lesser number will block your Redis server a shorter time
-     * per call but a higher amount of calls are needed to get all shards for the action.
-     *
-     * Most times this value could be kept default, but if you have a lot of shards in progress or finished (>100) maybe
-     * a value ~20 could shorten resharding events.
-     */
-    val scanCount:Int = DEFAULT_SCAN_COUNT,
-
-    /**
      * If the user has its own implementation of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService] this can be configured here.
      * As default [ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.shard.persistence.RedisShardStatePersistenceServiceVerticle]
      * will be used. To be save, please ensure to deploy the own implementation of [ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService]
@@ -185,7 +174,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_MINIMAL_GET_RECORDS_LIMIT = 300
 
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
-        const val DEFAULT_SCAN_COUNT = 10 // Redis default
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
