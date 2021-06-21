@@ -1,9 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
@@ -63,32 +61,21 @@ internal class ReshardingVerticle : CoroutineVerticle() {
     private suspend fun onMergeReshardingEvent(event: MergeReshardingEvent) {
         val (parentShardId, childShardId) = event
         logger.info { "Received merge resharding event. Parent shard: $parentShardId, child shard: $childShardId" }
-
         finishShardConsuming(event, parentShardId)
-
-        val readyToConsumeChildShard = isReadyToConsumeChildShard(event)
-        if (readyToConsumeChildShard) {
-            sendLocalStartConsumerCmd(childShardId)
-        }
     }
 
 
     private suspend fun onSplitReshardingEvent(event: SplitReshardingEvent) {
         val (parentShardId, childShardIds) = event
         logger.info { "Received split resharding event. Parent shard: $parentShardId, child shards: $childShardIds" }
-
         finishShardConsuming(event, parentShardId)
-
-        // We start the first child local
-        val firstChildShardId = childShardIds.first()
-        sendLocalStartConsumerCmd(firstChildShardId)
     }
 
     private suspend fun finishShardConsuming(event: ReshardingEvent,parentShardId: ShardId) {
         val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
         persistChildShardsIterators(event, streamDescription)
         saveFinishedShard(parentShardId, streamDescription)
-        sendLocalStopShardConsumerCmd(parentShardId)
+        sendStopShardConsumerCmd(parentShardId)
     }
 
     /**
@@ -102,31 +89,7 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         shardStatePersistence.deleteShardSequenceNumber(shardId)
     }
 
-    private suspend fun sendLocalStartConsumerCmd(shardId: ShardId) {
-        val cmd = StartConsumersCmd(listOf(shardId), ShardIteratorStrategy.EXISTING_OR_LATEST)
-        vertx.eventBus()
-            .runCatching {
-                request<Unit>(
-                    EventBusAddr.consumerControl.startConsumersCmd,
-                    cmd,
-                    localOnlyDeliveryOptions
-                ).await()
-            }
-            .onFailure {
-                if (it is ReplyException) {
-                    when (it.failureCode()) {
-                        StartConsumersCmd.CONSUMER_START_FAILURE -> logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding." }
-                        StartConsumersCmd.CONSUMER_CAPACITY_FAILURE -> logger.warn(it) { "No capacity to start consumer for shard \"$shardId\" after resharding. " +
-                                "Maybe already started by consumable shard detection" }
-                    }
-                } else {
-                    logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding. This may relates to a bug. " +
-                            "Please restart this VKCO instance and report an issue." }
-                }
-            }
-    }
-
-    private suspend fun sendLocalStopShardConsumerCmd(shardId: ShardId) {
+    private suspend fun sendStopShardConsumerCmd(shardId: ShardId) {
         vertx.eventBus()
             .runCatching {
                 request<Unit>(
@@ -148,33 +111,6 @@ internal class ReshardingVerticle : CoroutineVerticle() {
             }
     }
 
-
-    /**
-     * Persists a flag for the parent of the given merge parent shard. So we are able to determine if both parents
-     * got finished and therefore the VKCO can continue and conume from the resulting child shard.
-     *
-     * @return True if both merge parents are finished and both event did reach this organizer Verticle.
-     */
-    private suspend fun isReadyToConsumeChildShard(mergeReshardingEvent: MergeReshardingEvent): Boolean {
-        return (shardStatePersistence.flagMergeParentReadyToReshard(
-            mergeReshardingEvent.finishedParentShardId,
-            mergeReshardingEvent.childShardId
-        )).also { canReOrchestrate ->
-            if (canReOrchestrate) {
-                val garbageWarnMsg =
-                    "There maybe some data garbage on Redis. Looks like not all merge parent ready flags of child shard \"${mergeReshardingEvent.childShardId}\" are removed."
-                shardStatePersistence.runCatching {
-                    deleteMergeParentsReshardingReadyFlag(mergeReshardingEvent.childShardId)
-                }.onSuccess {
-                    if (it != 2) {
-                        logger.warn { garbageWarnMsg }
-                    }
-                }.onFailure {
-                    logger.warn(it) { garbageWarnMsg }
-                }
-            }
-        }
-    }
 
     /**
      * Persist the starting sequence numbers of resharding child shards.
