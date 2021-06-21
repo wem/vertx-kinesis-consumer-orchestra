@@ -42,11 +42,13 @@ internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Bool
             do {
                 delay(1000)
                 streamsExisting =
-                    kinesisClient.listStreams().await().streamNames().any { it.startsWith(TEST_STREAM_NAME) }
+                    kinesisClient.listStreams().await().streamNames().any { it == TEST_STREAM_NAME }
+                logger.debug { "Kinesis stream still exists" }
             } while (streamsExisting)
-            logger.info { "Kinesis streams cleaned up" }
+            delay(5000)
+            logger.info { "Kinesis stream deleted" }
         } else {
-            logger.info { "Kinesis stream clean up not necessary" }
+            logger.info { "Kinesis stream deletion not necessary" }
         }
     }
 }
