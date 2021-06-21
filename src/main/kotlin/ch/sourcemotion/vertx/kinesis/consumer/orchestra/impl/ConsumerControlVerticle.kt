@@ -6,6 +6,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersC
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
@@ -21,6 +23,7 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.redis.client.Redis
 import kotlinx.coroutines.launch
 import mu.KLogging
+import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import java.time.Duration
 import kotlin.LazyThreadSafetyMode.NONE
 
@@ -38,6 +41,11 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(
             vertx
         )
+    }
+
+    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
+        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+            .createKinesisAsyncClient(context)
     }
 
     private val consumerDeploymentLock by lazy(NONE) {
@@ -58,8 +66,10 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
         notifyAboutActiveConsumers() // Directly after start there would be no consumer, so we start the detection.
         logger.debug { "Consumer control started with options \"$options\"" }
-        logger.info { "VKCO instance configure to consume max. ${options.loadConfiguration.maxShardsCount} " +
-                "shards from stream ${options.clusterName.streamName}" }
+        logger.info {
+            "VKCO instance configure to consume max. ${options.loadConfiguration.maxShardsCount} " +
+                    "shards from stream ${options.clusterName.streamName}"
+        }
     }
 
     private fun onStopConsumerCmd(msg: Message<StopConsumerCmd>) {
@@ -95,38 +105,38 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
             return
         }
         launch {
-            consumerDeploymentLock.doLocked {
+            try {
+                consumerDeploymentLock.doLocked {
 
-                // We filter the list of shard ids to consume for they got in progress in the meanwhile.
-                // This can happen if 2 or more VKCO instances did trigger a consumer start at the (near) exactly same time.
-                val shardIdsToConsume = cmd.shardIds.filterUnavailableShardIds().take(consumerCapacity())
+                    // We filter the list of shard ids to consume for they got in progress in the meanwhile.
+                    // This can happen if 2 or more VKCO instances did trigger a consumer start at the (near) exactly same time.
+                    val shardIdsToConsume = cmd.shardIds.filterUnavailableShardIds().take(consumerCapacity())
 
-                // If just a sub set of shards cannot be consumed because of the left capacity, we log the left ones.
-                cmd.shardIds.filterNot { shardIdsToConsume.contains(it) }.also {
-                    if (it.isNotEmpty()) {
-                        logger.info {
-                            "Consumer control unable to start consumer(s) for shards ${it.joinToString()} " +
-                                    "because of its consumer limit of \"${options.loadConfiguration.maxShardsCount}\""
+                    // If just a sub set of shards cannot be consumed because of the left capacity, we log the left ones.
+                    cmd.shardIds.filterNot { shardIdsToConsume.contains(it) }.also {
+                        if (it.isNotEmpty()) {
+                            logger.info {
+                                "Consumer control unable to start consumer(s) for shards ${it.joinToString()} " +
+                                        "because of its consumer limit of \"${options.loadConfiguration.maxShardsCount}\""
+                            }
                         }
                     }
-                }
 
-                shardIdsToConsume.forEach { shardId ->
-                    val consumerOptions = createConsumerVerticleOptions(shardId, cmd.iteratorStrategy)
-                    startConsumer(
-                        options.consumerVerticleClass,
-                        JsonObject(options.consumerVerticleConfig),
-                        consumerOptions
-                    )
+                    shardIdsToConsume.forEach {
+                        val consumerOptions = createConsumerVerticleOptions(it, cmd.iteratorStrategy)
+                        startConsumer(
+                            options.consumerVerticleClass,
+                            JsonObject(options.consumerVerticleConfig),
+                            consumerOptions
+                        )
+                    }
                 }
-            }
-        }.invokeOnCompletion {
-            logAndNotifyAboutActiveConsumers()
-            if (it == null) {
                 msg.ack()
-            } else {
-                logger.warn(it) { "Consumer control unable to start consumers for shards \"${cmd.shardIds.joinToString()}\"" }
-                msg.fail(StartConsumersCmd.CONSUMER_START_FAILURE, it.message)
+            } catch (e: Exception) {
+                logger.warn(e) { "Consumer control unable to start consumers for shards \"${cmd.shardIds.joinToString()}\"" }
+                msg.fail(StartConsumersCmd.CONSUMER_START_FAILURE, e.message)
+            } finally {
+                logAndNotifyAboutActiveConsumers()
             }
         }
     }
@@ -151,12 +161,16 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
     private fun logAndNotifyAboutActiveConsumers() {
         if (consumerDeploymentIds.keys.isEmpty()) {
-            logger.info { "Currently no shards get consumed on stream \"${options.clusterName.streamName}\". " +
-                    "This VKCO instance has to capacity to consume ${consumerCapacity()} shards" }
+            logger.info {
+                "Currently no shards get consumed on stream \"${options.clusterName.streamName}\". " +
+                        "This VKCO instance has to capacity to consume ${consumerCapacity()} shards"
+            }
         } else {
-            logger.info { "Currently the shards ${consumerDeploymentIds.keys.joinToString()} " +
-                    "are consumed on stream \"${options.clusterName.streamName}\". " +
-                    "This VKCO instance has to capacity to consume ${consumerCapacity()} further shards" }
+            logger.info {
+                "Currently the shards ${consumerDeploymentIds.keys.joinToString()} " +
+                        "are consumed on stream \"${options.clusterName.streamName}\". " +
+                        "This VKCO instance has to capacity to consume ${consumerCapacity()} further shards"
+            }
         }
         notifyAboutActiveConsumers()
     }
