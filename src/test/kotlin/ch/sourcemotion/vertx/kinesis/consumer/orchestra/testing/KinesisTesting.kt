@@ -10,6 +10,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWh
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.shouldBe
 import io.vertx.core.Vertx
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
@@ -69,21 +70,27 @@ suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
     recordDataSupplier: (Int) -> SdkBytes = { suffix -> SdkBytes.fromUtf8String("record-data-$suffix") },
     predefinedShards: ShardList? = null
 ) {
-    // Count of record bundles must equal to the count of shards
+    // Count of record bundles must be equal according the shards count
     val shards = predefinedShards ?: streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
     shards.shouldHaveSize(recordBatching.recordBatches)
 
     repeat(recordBatching.recordBatches) { bundleIdx ->
-        val hashKey = shards[bundleIdx].hashKeyRange().startingHashKey()
-
+        val shard = shards[bundleIdx]
         val putRequestRecords = List(recordBatching.recordsPerBatch) { recordIdx ->
-            PutRecordsRequestEntry.builder().explicitHashKey(hashKey).partitionKey("partition-key")
+            val hashKey = shard.hashKeyRange().startingHashKey()
+            PutRecordsRequestEntry.builder()
+                .explicitHashKey(hashKey)
+                .partitionKey("1")
                 .data(recordDataSupplier(recordIdx))
                 .build()
         }.toList()
+
         val putResponse = putRecords {
             it.records(putRequestRecords).streamName(TEST_STREAM_NAME)
         }.await()
+        putResponse.records().forEach { record ->
+            record.shardId().shouldBe(shard.shardId())
+        }
         putResponse.failedRecordCount().shouldBe(0)
     }
 }
@@ -106,6 +113,8 @@ suspend fun KinesisAsyncClient.mergeShards(parentShard: Shard, adjacentShard: Sh
         it.shardToMerge(parentShard.shardId())
         it.adjacentShardToMerge(adjacentShard.shardId())
     }.await()
+    streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+    delay(7000)
 }
 
 fun StreamDescription.shardIds() = shards().map { it.shardIdTyped() }
