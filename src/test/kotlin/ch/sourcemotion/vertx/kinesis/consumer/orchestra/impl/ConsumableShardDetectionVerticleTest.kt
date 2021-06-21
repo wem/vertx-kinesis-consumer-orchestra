@@ -31,7 +31,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             1,
             100,
             1,
-            ShardIteratorStrategy.FORCE_LATEST
+            initialIteratorStrategy = ShardIteratorStrategy.FORCE_LATEST
         )
     }
 
