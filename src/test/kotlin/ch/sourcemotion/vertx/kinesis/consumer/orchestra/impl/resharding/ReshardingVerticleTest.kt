@@ -9,8 +9,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.collections.shouldContain
-import io.kotest.matchers.collections.shouldContainExactly
-import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
@@ -60,43 +58,11 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         }
 
     /**
-     * On merge resharding, the child shard should get started to consume after both parent are finished.
-     */
-    @Test
-    internal fun start_consumers_cmd_on_second_merge_parent_event(testContext: VertxTestContext) =
-        testContext.asyncDelayed(1, 500) { checkpoint ->
-            val (childShardId, parentShardIds) = createStreamAndMerge()
-
-            eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
-                defaultTestScope.launch {
-                    val finishedShardIds = shardStatePersistenceService.getFinishedShardIds()
-                    val sequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(childShardId)
-                    testContext.verify {
-                        finishedShardIds.shouldContainExactlyInAnyOrder(parentShardIds)
-                        sequenceNumber.shouldNotBeNull()
-                        msg.body().shouldContainOneShardId().shouldBe(childShardId)
-                    }
-                    msg.ack()
-                    checkpoint.flag()
-                }
-            }
-
-            eventBus.requestAwait<Unit>(
-                EventBusAddr.resharding.notification,
-                MergeReshardingEvent(parentShardIds.first(), childShardId)
-            )
-            eventBus.requestAwait<Unit>(
-                EventBusAddr.resharding.notification,
-                MergeReshardingEvent(parentShardIds.last(), childShardId)
-            )
-        }
-
-    /**
      * On split resharding the parent should be stopped and the first child consume command should send immediately.
      */
     @Test
     internal fun split_resharding(testContext: VertxTestContext) =
-        testContext.async(2) { checkpoint ->
+        testContext.async(1) { checkpoint ->
             val (childShardIds, parentShardId) = createStreamAndSplit()
 
             eventBus.consumer<StopConsumerCmd>(EventBusAddr.consumerControl.stopConsumerCmd) { msg ->
@@ -106,21 +72,6 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     testContext.verify {
                         shardId.shouldBe(parentShardId)
                         sequenceNumber.shouldBeNull()
-                    }
-                    msg.ack()
-                    checkpoint.flag()
-                }
-            }.completionHandlerAwait()
-
-            eventBus.consumer<StartConsumersCmd>(EventBusAddr.consumerControl.startConsumersCmd) { msg ->
-                val shardId = msg.body().shouldContainOneShardId()
-                defaultTestScope.launch {
-                    val finishedShardIds = shardStatePersistenceService.getFinishedShardIds()
-                    val sequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
-                    testContext.verify {
-                        finishedShardIds.shouldContainExactly(parentShardId)
-                        sequenceNumber.shouldNotBeNull()
-                        shardId.shouldBe(childShardIds.first())
                     }
                     msg.ack()
                     checkpoint.flag()
