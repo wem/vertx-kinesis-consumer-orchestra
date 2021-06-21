@@ -22,6 +22,7 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Redis
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import java.time.Duration
@@ -106,29 +107,31 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         }
         launch {
             try {
-                consumerDeploymentLock.doLocked {
+                withTimeout(options.consumerDeploymentLockExpiration) {
+                    consumerDeploymentLock.doLocked {
 
-                    // We filter the list of shard ids to consume for they got in progress in the meanwhile.
-                    // This can happen if 2 or more VKCO instances did trigger a consumer start at the (near) exactly same time.
-                    val shardIdsToConsume = cmd.shardIds.filterUnavailableShardIds().take(consumerCapacity())
+                        // We filter the list of shard ids to consume for they got in progress in the meanwhile.
+                        // This can happen if 2 or more VKCO instances did trigger a consumer start at the (near) exactly same time.
+                        val shardIdsToConsume = cmd.shardIds.filterUnavailableShardIds().take(consumerCapacity())
 
-                    // If just a sub set of shards cannot be consumed because of the left capacity, we log the left ones.
-                    cmd.shardIds.filterNot { shardIdsToConsume.contains(it) }.also {
-                        if (it.isNotEmpty()) {
-                            logger.info {
-                                "Consumer control unable to start consumer(s) for shards ${it.joinToString()} " +
-                                        "because of its consumer limit of \"${options.loadConfiguration.maxShardsCount}\""
+                        // If just a sub set of shards cannot be consumed because of the left capacity, we log the left ones.
+                        cmd.shardIds.filterNot { shardIdsToConsume.contains(it) }.also {
+                            if (it.isNotEmpty()) {
+                                logger.info {
+                                    "Consumer control unable to start consumer(s) for shards ${it.joinToString()} " +
+                                            "because of its consumer limit of \"${options.loadConfiguration.maxShardsCount}\""
+                                }
                             }
                         }
-                    }
 
-                    shardIdsToConsume.forEach {
-                        val consumerOptions = createConsumerVerticleOptions(it, cmd.iteratorStrategy)
-                        startConsumer(
-                            options.consumerVerticleClass,
-                            JsonObject(options.consumerVerticleConfig),
-                            consumerOptions
-                        )
+                        shardIdsToConsume.forEach {
+                            val consumerOptions = createConsumerVerticleOptions(it, cmd.iteratorStrategy)
+                            startConsumer(
+                                options.consumerVerticleClass,
+                                JsonObject(options.consumerVerticleConfig),
+                                consumerOptions
+                            )
+                        }
                     }
                 }
                 msg.ack()

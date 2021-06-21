@@ -8,6 +8,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
+import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
@@ -24,14 +25,13 @@ import kotlin.random.Random
  */
 internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
 
-    private companion object : KLogging() {
-        private val localOnlyDeliveryOptions = deliveryOptionsOf(localOnly = true)
-    }
+    private companion object : KLogging()
 
     private var initialDetection = true
 
     private val options by lazy(NONE) { config.mapTo(Options::class.java) }
     private val detectionInterval by lazy(NONE) { options.detectionInterval + Random.nextLong(0, options.detectionIntervalBackoff) }
+    private val startCmdDeliveryOptions by lazy(NONE) { deliveryOptionsOf(localOnly = true, sendTimeout = options.startCmdDeliveryTimeout) }
 
     private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
@@ -118,7 +118,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
 
                 val cmd = StartConsumersCmd(shardIdListToConsume, iteratorStrategy)
                 vertx.eventBus().request<Unit>(
-                    EventBusAddr.consumerControl.startConsumersCmd, cmd, localOnlyDeliveryOptions
+                    EventBusAddr.consumerControl.startConsumersCmd, cmd, startCmdDeliveryOptions
                 ).await()
             } else {
                 logger.info { "Consumable shard detection did run, but there was no consumable shard to consume on stream \"${options.clusterName.streamName}\"" }
@@ -163,6 +163,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         val maxShardCountToConsume: Int,
         val detectionInterval: Long,
         val detectionIntervalBackoff: Long,
+        val startCmdDeliveryTimeout: Long = DeliveryOptions.DEFAULT_TIMEOUT,
         val initialIteratorStrategy: ShardIteratorStrategy
     )
 }

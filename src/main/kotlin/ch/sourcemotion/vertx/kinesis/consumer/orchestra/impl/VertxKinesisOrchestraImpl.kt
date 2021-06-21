@@ -119,6 +119,7 @@ internal class VertxKinesisOrchestraImpl(
             options.loadConfiguration.maxShardsCount,
             options.loadConfiguration.notConsumedShardDetectionInterval,
             options.loadConfiguration.notConsumedShardDetectionIntervalBackoff,
+            options.consumerDeploymentLockExpiration.toMillis(),
             options.shardIteratorStrategy
         )
         subsystemDeploymentIds.add(deployVerticle<ConsumableShardDetectionVerticle>(options))
