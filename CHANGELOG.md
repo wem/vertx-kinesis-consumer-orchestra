@@ -124,3 +124,22 @@ Workaround removed which did cover the scenario when Localstack did not deliver 
 ### Maintenance
 #### Cleanup
 Unused resetTo function removed on fetcher(s).
+
+## [0.0.9.4]
+### Fixed
+#### Use MGET instead of SCAN
+We now use MGET to obtain information about shards they are finished or in progress.   
+### Improved
+#### Limit handling
+Request limit handling on listShards requests.
+#### Record queuing / buffering
+We replaced Channel from Kotlin SDK with own suspendable queue implementation because of memory problem in some situations (needs "more" investigation). 
+#### Resharding
+Replaced internal running state of the AbstractKinesisConsumerVerticle with two (fetching, inProgress), for hardening of the resharding process. 
+#### Consumable shard detection
+Introduction of a backoff for the detection interval to spread the detection and deployment of consumable shards. 
+#### Timeout handling during consumer deployment
+Hardening of the timeout handling during consumer deployment. 
+### Maintenance
+#### AWS SDK version
+Bumped AWS SDK to 2.16.85
