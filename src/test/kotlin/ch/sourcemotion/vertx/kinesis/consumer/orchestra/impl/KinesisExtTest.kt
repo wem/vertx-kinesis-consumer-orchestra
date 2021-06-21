@@ -17,4 +17,13 @@ internal class KinesisExtTest : AbstractKinesisAndRedisTest(false) {
         }
         jobs.forEach { it.join() }
     }
+
+    @Test
+    internal fun listShardsSafe_limit_exceeded(testContext: VertxTestContext) = testContext.async {
+        kinesisClient.createAndGetStreamDescriptionWhenActive(1)
+        val jobs = IntRange(1, 300).map {
+            defaultTestScope.launch { kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME) }
+        }
+        jobs.forEach { it.join() }
+    }
 }
