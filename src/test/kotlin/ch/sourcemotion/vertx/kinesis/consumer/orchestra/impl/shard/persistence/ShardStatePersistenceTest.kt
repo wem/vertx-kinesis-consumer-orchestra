@@ -45,23 +45,23 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     @Test
     internal fun flagShardInProgress(testContext: VertxTestContext) = asyncTest(testContext) {
         sut.flagShardInProgress(shardId).shouldBeTrue()
-        sut.getShardIdsInProgress().shouldContainExactly(shardId)
+        sut.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
     }
 
     @Test
     internal fun swap_shard_progress_flag(testContext: VertxTestContext) = asyncTest(testContext) {
         sut.flagShardInProgress(shardId).shouldBeTrue()
-        sut.getShardIdsInProgress().shouldContainExactly(shardId)
+        sut.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
         sut.flagShardNoMoreInProgress(shardId).shouldBeTrue()
-        sut.getShardIdsInProgress().shouldBeEmpty()
+        sut.getShardIdsInProgress(listOf(shardId)).shouldBeEmpty()
     }
 
     @Test
     internal fun shard_progress_expiration(testContext: VertxTestContext) = asyncTest(testContext) {
         sut.flagShardInProgress(shardId).shouldBeTrue()
-        sut.getShardIdsInProgress().shouldContainExactly(shardId)
+        sut.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
         delay(DEFAULT_TEST_EXPIRATION_MILLIS * 2)
-        sut.getShardIdsInProgress().shouldBeEmpty()
+        sut.getShardIdsInProgress(listOf(shardId)).shouldBeEmpty()
     }
 
     @Test
@@ -85,7 +85,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
         val shardIds = ShardIdGenerator.generateShardIdList(2)
         shardIds.forEach { sut.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION_MILLIS) }
 
-        sut.getFinishedShardIds().shouldContainExactlyInAnyOrder(shardIds)
+        sut.getFinishedShardIds(shardIds).shouldContainExactlyInAnyOrder(shardIds)
     }
 
     @Test
@@ -94,7 +94,7 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
         val shardIds = ShardIdGenerator.generateShardIdList(shardCount)
         shardIds.forEach { sut.saveFinishedShard(it, 30000) } // For 10000 entries it can take a longer time
 
-        val finishedShardIds = sut.getFinishedShardIds()
+        val finishedShardIds = sut.getFinishedShardIds(shardIds)
         finishedShardIds.shouldHaveSize(shardCount)
         finishedShardIds.shouldContainExactlyInAnyOrder(shardIds)
     }
@@ -103,9 +103,9 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     internal fun save_finished_shard_expiration(testContext: VertxTestContext) = asyncTest(testContext) {
         val shardIds = ShardIdGenerator.generateShardIdList(10)
         shardIds.forEach { sut.saveFinishedShard(it, DEFAULT_TEST_EXPIRATION_MILLIS) }
-        sut.getFinishedShardIds().shouldContainExactlyInAnyOrder(shardIds)
+        sut.getFinishedShardIds(shardIds).shouldContainExactlyInAnyOrder(shardIds)
         delay(DEFAULT_TEST_EXPIRATION_MILLIS * 2)
-        sut.getFinishedShardIds().shouldBeEmpty()
+        sut.getFinishedShardIds(shardIds).shouldBeEmpty()
     }
 
     @Test
@@ -146,23 +146,23 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
 
     @Test
     internal fun get_shardids_in_progress_no_shards_in_progress(testContext: VertxTestContext) =
-        asyncTest(testContext) { sut.getShardIdsInProgress().shouldBeEmpty() }
+        asyncTest(testContext) { sut.getShardIdsInProgress(listOf(shardId)).shouldBeEmpty() }
 
     @Test
     internal fun get_shardids_in_progress_one_shard_in_progress(testContext: VertxTestContext) =
         asyncTest(testContext) {
             sut.flagShardInProgress(shardId).shouldBeTrue()
-            sut.getShardIdsInProgress().shouldContainExactly(shardId)
+            sut.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
         }
 
     @Test
     internal fun get_shard_ids_in_progress_many_shards_in_progress(testContext: VertxTestContext) =
         asyncTest(testContext) {
-            val shardIdList = IntRange(0, 99).map { ShardIdGenerator.generateShardId(it) }
-            shardIdList.forEach { shardId ->
+            val shardIds = IntRange(0, 99).map { ShardIdGenerator.generateShardId(it) }
+            shardIds.forEach { shardId ->
                 sut.flagShardInProgress(shardId).shouldBeTrue()
             }
-            sut.getShardIdsInProgress().shouldContainExactlyInAnyOrder(shardIdList)
+            sut.getShardIdsInProgress(shardIds).shouldContainExactlyInAnyOrder(shardIds)
         }
 
 

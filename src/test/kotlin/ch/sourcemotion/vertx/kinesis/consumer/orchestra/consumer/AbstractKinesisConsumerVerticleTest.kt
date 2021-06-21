@@ -429,11 +429,11 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 shardProgressExpirationMillis = shardProgressExpirationMillis
             )
         )
-        shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
+        shardStatePersistenceService.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
         delay(shardProgressExpirationMillis * 2)
-        shardStatePersistenceService.getShardIdsInProgress().shouldContainExactly(shardId)
+        shardStatePersistenceService.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
         vertx.undeploy(deploymentId).await()
-        shardStatePersistenceService.getShardIdsInProgress().shouldBeEmpty()
+        shardStatePersistenceService.getShardIdsInProgress(listOf(shardId)).shouldBeEmpty()
     }
 
     private fun StreamDescription.getFirstShardId() = shards().first().shardIdTyped()

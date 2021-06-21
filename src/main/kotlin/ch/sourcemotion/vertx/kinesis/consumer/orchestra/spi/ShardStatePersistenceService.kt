@@ -25,7 +25,7 @@ interface ShardStatePersistenceService {
     /**
      * @return List of shard ids they are currently in progress. Means they are fetched by a consumer of an orchestra instance.
      */
-    fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>)
+    fun getShardIdsInProgress(shardIds: List<String>, handler: Handler<AsyncResult<List<String>>>)
 
     /**
      * Flags a shard as currently fetched by consumer of an orchestra instance and so in progress. The flag should
@@ -71,7 +71,7 @@ interface ShardStatePersistenceService {
     /**
      * Calls [handler] with a list of finished shard ids. By previous calls on [saveFinishedShard])
      */
-    fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>)
+    fun getFinishedShardIds(shardIds: List<String>, handler: Handler<AsyncResult<List<String>>>)
 
     /**
      * Should flag the [parentShardId] of [childShardId] as finished and return amount of finished parent shards.
@@ -90,8 +90,8 @@ interface ShardStatePersistenceService {
 
 class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersistenceService) :
     ShardStatePersistenceService by delegate {
-    suspend fun getShardIdsInProgress(): ShardIdList =
-        awaitResult<List<String>> { getShardIdsInProgress(it) }.map { it.asShardIdTyped() }
+    suspend fun getShardIdsInProgress(shardIds: List<ShardId>): ShardIdList =
+        awaitResult<List<String>> { getShardIdsInProgress(shardIds.map { shardId ->  "$shardId" }, it) }.map { it.asShardIdTyped() }
 
     suspend fun flagShardInProgress(shardId: ShardId) = awaitResult<Boolean> { flagShardInProgress(shardId.id, it) }
 
@@ -117,8 +117,8 @@ class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersiste
     suspend fun saveFinishedShard(shardId: ShardId, expirationMillis: Long) =
         awaitResult<Void?> { saveFinishedShard("$shardId", expirationMillis, it) }
 
-    suspend fun getFinishedShardIds(): ShardIdList =
-        awaitResult<List<String>> { getFinishedShardIds(it) }.map { it.asShardIdTyped() }
+    suspend fun getFinishedShardIds(shardIds: List<ShardId>): ShardIdList =
+        awaitResult<List<String>> { getFinishedShardIds(shardIds.map { shardId ->  "$shardId" }, it) }.map { it.asShardIdTyped() }
 
     suspend fun flagMergeParentReadyToReshard(parentShardId: ShardId, childShardId: ShardId) =
         awaitResult<Boolean> { this.flagMergeParentReshardingReady("$parentShardId", "$childShardId", it) }
