@@ -136,8 +136,7 @@ internal class VertxKinesisOrchestraImpl(
             options.applicationName,
             options.streamName,
             options.redisOptions,
-            options.shardProgressExpiration.toMillis(),
-            options.scanCount
+            options.shardProgressExpiration.toMillis()
         )
         subsystemDeploymentIds.add(deployVerticle<RedisShardStatePersistenceServiceVerticle>(options))
     }
