@@ -24,7 +24,7 @@ internal class NettyEnhancedFanoutFetcherTest : AbstractEnhancedFanoutFetcherTes
 
         val shardId = streamDescription.shardIds().first()
         return EnhancedFanoutFetcher(
-            vertx, context, fetcherOptions, enhancedFanOutOptions, TEST_CLUSTER_ORCHESTRA_NAME, null,
+            fetcherOptions, enhancedFanOutOptions, TEST_CLUSTER_ORCHESTRA_NAME, null,
             defaultTestScope, shardId, clientFactory.createKinesisAsyncClient(context), null
         )
     }

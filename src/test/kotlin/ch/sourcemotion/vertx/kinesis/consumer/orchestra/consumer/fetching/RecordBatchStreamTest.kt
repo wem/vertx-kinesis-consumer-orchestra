@@ -108,18 +108,6 @@ internal class RecordBatchStreamTest : AbstractVertxTest() {
         batch.records.shouldBeEmpty()
     }
 
-    @Test
-    internal fun reset_stream(testContext: VertxTestContext) = testContext.async {
-        val stream = RecordBatchStream(PREFETCH_LIMIT)
-        val writer = stream.writer()
-        val reader = stream.reader()
-
-        writer.writeToStream(getRecordResponse(recordCount = 7))
-        writer.resetStream()
-        writer.writeToStream(getRecordResponse(recordCount = 3))
-        reader.readFromStream().records.shouldHaveSize(3)
-    }
-
     private suspend fun writeResponseReadBatchAndVerify(
         expectedBatchSize: Int,
         writer: RecordBatchStreamWriter,
