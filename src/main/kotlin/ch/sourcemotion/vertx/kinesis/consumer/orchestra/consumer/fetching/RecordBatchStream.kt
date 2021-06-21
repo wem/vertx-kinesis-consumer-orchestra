@@ -17,7 +17,7 @@ internal data class RecordBatch(
     val sequenceNumber: SequenceNumber?,
     val millisBehindLatest: Long,
 ) {
-    val resharded: Boolean = nextShardIterator == null
+    val resharded: Boolean = nextShardIterator == null && childShards.isNotEmpty()
 }
 
 internal class RecordBatchStream(private val recordsPreFetchLimit: Int) {
@@ -112,7 +112,6 @@ internal interface RecordBatchStreamReader {
 internal class ResponseEntryQueue(private val limit: Int) {
     private val queueList = LinkedList<ResponseEntry>()
 
-    // This is a list to ensure all senders get resumed, in the case multiple simultaneous calls happen.
     private var sendCont: (() -> Unit)? = null
     private var receiveCont: (() -> Unit)? = null
 
@@ -125,7 +124,7 @@ internal class ResponseEntryQueue(private val limit: Int) {
         if (queueList.size >= limit) {
             resumeReceiver()
             suspendCancellableCoroutine<Unit> {
-                sendCont =  {
+                sendCont = {
                     sendCont = null
                     it.resume(Unit)
                 }
