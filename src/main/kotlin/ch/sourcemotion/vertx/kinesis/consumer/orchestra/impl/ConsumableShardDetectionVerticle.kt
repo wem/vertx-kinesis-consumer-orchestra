@@ -12,11 +12,11 @@ import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
-import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import kotlin.LazyThreadSafetyMode.NONE
+import kotlin.random.Random
 
 /**
  * Verticle that will detect consumable shards. The detection will stopp if the VKCO instance consumes the configured max.
@@ -31,6 +31,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     private var initialDetection = true
 
     private val options by lazy(NONE) { config.mapTo(Options::class.java) }
+    private val detectionInterval by lazy(NONE) { options.detectionInterval + Random.nextLong(0, options.detectionIntervalBackoff) }
 
     private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
@@ -58,7 +59,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         vertx.eventBus().localConsumer(
             EventBusAddr.detection.consumedShardCountNotification, ::onConsumedShardCountNotification
         ).completionHandlerAwait()
-        logger.debug { "Consumable shard detector verticle started" }
+        logger.debug { "Consumable shard detector verticle started with an detection interval of $detectionInterval" }
     }
 
     override suspend fun stop() {
@@ -137,7 +138,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     private fun startDetection() {
         if (detectionTimerId.isNull()) {
             logger.info { "Start consumable shards detection on stream \"${options.clusterName.streamName}\"" }
-            detectionTimerId = vertx.setPeriodic(options.detectionInterval, ::detectNotConsumedShards)
+            detectionTimerId = vertx.setPeriodic(detectionInterval, ::detectNotConsumedShards)
         } else {
             logger.info { "Consumable shards detection already running" }
         }
@@ -161,6 +162,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         val clusterName: OrchestraClusterName,
         val maxShardCountToConsume: Int,
         val detectionInterval: Long,
+        val detectionIntervalBackoff: Long,
         val initialIteratorStrategy: ShardIteratorStrategy
     )
 }

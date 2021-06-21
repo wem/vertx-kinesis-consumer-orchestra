@@ -12,6 +12,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
@@ -177,6 +178,7 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
         const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
+        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS = 5000L
 
         const val DEFAULT_USE_SDK_NETTY_CLIENT = true
 
@@ -253,19 +255,28 @@ data class LoadConfiguration constructor(
      * Interval to execute detection of not consumed shards. Common situations of not consumed shards are e.g. on
      * VKCO startup or after a split resharding.
      */
-    val notConsumedShardDetectionInterval: Long
+    val notConsumedShardDetectionInterval: Long,
+
+    /**
+     * Backoff of the detection to spread the deployment / start of consumers.
+     */
+    val notConsumedShardDetectionIntervalBackoff: Long
 ) {
     companion object {
         @JvmOverloads
         @JvmStatic
-        fun createConsumeAllShards(notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS) =
-            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval)
+        fun createConsumeAllShards(
+            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS,
+            notConsumedShardDetectionIntervalBackoff: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
+        ) =
+            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval, notConsumedShardDetectionIntervalBackoff)
 
         @JvmStatic
         fun createConsumeExact(
             exactCount: Int,
-            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
-        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval)
+            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS,
+            notConsumedShardDetectionIntervalBackoff: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
+        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval, notConsumedShardDetectionIntervalBackoff)
     }
 
     init {
