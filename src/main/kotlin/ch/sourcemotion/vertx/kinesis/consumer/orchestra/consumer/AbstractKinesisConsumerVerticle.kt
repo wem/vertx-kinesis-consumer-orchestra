@@ -51,10 +51,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     /**
      * Running flag, if the verticle is still running. When the verticle  get stopped, this flag must be false.
-     * Volatile because this flag is queried within coroutine, but set on "direct" event loop thread.
      */
-    @Volatile
-    private var running = false
+    private var fetching = false
+    private var inProgress = false
 
     private lateinit var fetcher: Fetcher
     private lateinit var recordBatchReader: RecordBatchStreamReader
@@ -65,7 +64,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     override suspend fun stop() {
-        running = false
+        fetching = false
+        inProgress = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         runCatching { fetcher.stop() }
         runCatching { inProgressJobId?.let { vertx.cancelTimer(it) } }
@@ -81,6 +81,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun startConsumer() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
+        inProgress = true
         shardStatePersistence.flagShardInProgress(options.shardId)
         startShardInProgressKeepAlive()
 
@@ -120,8 +121,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private fun startShardInProgressKeepAlive() {
         inProgressJobId = vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
-            launch {
-                if (running) {
+            if (inProgress) {
+                launch {
                     shardStatePersistence.flagShardInProgress(options.shardId)
                 }
             }
@@ -129,9 +130,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private fun beginFetching() {
-        running = true
+        fetching = true
         launch {
-            while (running) {
+            while (fetching) {
                 runCatching {
                     recordBatchReader.readFromStream()
                 }.onSuccess { recordBatch ->
@@ -163,7 +164,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             }
         } else if (recordsToRetry.isNotEmpty()) {
             val firstRecordToRetry = recordsToRetry.first()
-            val lastSuccessful = records.toList().takeWhile { it.sequenceNumber() != firstRecordToRetry.sequenceNumber() }.lastOrNull()
+            val lastSuccessful =
+                records.toList().takeWhile { it.sequenceNumber() != firstRecordToRetry.sequenceNumber() }.lastOrNull()
             if (lastSuccessful != null) {
                 saveDeliveredSequenceNbr(lastSuccessful.sequenceNumber().asSequenceNumberAfter())
             }
@@ -219,7 +221,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             "Streaming on $consumerInfo ended because shard iterator did reach its end. Resharding did happen. " +
                     "Consumer(s) will be started recently according new shard setup."
         }
-        running = false
+        fetching = false
         runCatching { fetcher.stop() }
         runCatching { ReshardingEvent.create(shardId, childShards.map { it.shardIdTyped() }) }
             .onSuccess { vertx.eventBus().send(EventBusAddr.resharding.notification, it) }
