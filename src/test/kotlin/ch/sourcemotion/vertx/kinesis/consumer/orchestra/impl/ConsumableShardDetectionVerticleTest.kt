@@ -30,6 +30,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             TEST_CLUSTER_ORCHESTRA_NAME,
             1,
             100,
+            1,
             ShardIteratorStrategy.FORCE_LATEST
         )
     }
