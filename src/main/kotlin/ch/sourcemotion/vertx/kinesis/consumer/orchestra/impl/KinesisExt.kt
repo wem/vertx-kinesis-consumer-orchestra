@@ -3,10 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
-import software.amazon.awssdk.services.kinesis.model.LimitExceededException
-import software.amazon.awssdk.services.kinesis.model.ShardIteratorType
-import software.amazon.awssdk.services.kinesis.model.StreamDescription
-import software.amazon.awssdk.services.kinesis.model.StreamStatus
+import software.amazon.awssdk.services.kinesis.model.*
 
 
 /**
@@ -20,10 +17,25 @@ internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamN
             if (it is LimitExceededException) {
                 delay(300)
             }
+            delay(10)
             null
         }
     }
     return description
+}
+
+internal suspend fun KinesisAsyncClient.listShardsSafe(streamName: String): List<Shard> {
+    var shards: List<Shard>? = null
+    while (shards == null) {
+        shards = runCatching { listShards { it.streamName(streamName) }.await().shards() }.getOrElse {
+            if (it is LimitExceededException) {
+                delay(100)
+            }
+            delay(10)
+            null
+        }
+    }
+    return shards
 }
 
 private suspend fun KinesisAsyncClient.streamDescriptionAwait(streamName: String): StreamDescription = describeStream {
