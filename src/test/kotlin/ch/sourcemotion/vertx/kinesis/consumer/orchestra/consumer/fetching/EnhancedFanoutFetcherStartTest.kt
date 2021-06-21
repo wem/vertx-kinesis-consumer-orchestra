@@ -193,7 +193,7 @@ internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
         ).build()
 
     private fun CoroutineScope.defaultEnhancedFanOutFetcher(kinesisClient: KinesisAsyncClient) =
-        EnhancedFanoutFetcher(vertx, vertx.orCreateContext, defaultFetcherOptions, enhancedFanOutOptions, clusterName, defaultStartSequenceNumber, this, shardId, kinesisClient, null)
+        EnhancedFanoutFetcher(defaultFetcherOptions, enhancedFanOutOptions, clusterName, defaultStartSequenceNumber, this, shardId, kinesisClient, null)
 
     private fun activeConsumer() = Consumer.builder().consumerARN(CONSUMER_ARN).consumerName(
         consumerName

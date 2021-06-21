@@ -29,10 +29,9 @@ internal interface Fetcher {
             val kinesisClient = getFinalClient(vertx, vertxClient)
             val enhancedOptions = fetcherOptions.enhancedFanOut
             val metricsCounter = fetcherOptions.metricsCounterOf(clusterName.streamName, shardId)
-            val context = vertx.orCreateContext
             return if (enhancedOptions != null) {
                 EnhancedFanoutFetcher(
-                    vertx, context, fetcherOptions, enhancedOptions, clusterName, startFetchPosition.sequenceNumber,
+                    fetcherOptions, enhancedOptions, clusterName, startFetchPosition.sequenceNumber,
                     scope, shardId, kinesisClient, metricsCounter
                 )
             } else {

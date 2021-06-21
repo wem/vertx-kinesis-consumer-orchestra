@@ -15,7 +15,7 @@ internal class VertxEnhancedFanoutFetcherTest : AbstractEnhancedFanoutFetcherTes
         val fetcherOptions = FetcherOptions(enhancedFanOut = enhancedFanOutOptions)
 
         val shardId = streamDescription.shardIds().first()
-        return EnhancedFanoutFetcher(vertx, context, fetcherOptions, enhancedFanOutOptions, TEST_CLUSTER_ORCHESTRA_NAME, null,
+        return EnhancedFanoutFetcher(fetcherOptions, enhancedFanOutOptions, TEST_CLUSTER_ORCHESTRA_NAME, null,
             defaultTestScope, shardId, kinesisClient, null)
     }
 }

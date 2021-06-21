@@ -8,8 +8,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumber
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.SequenceNumberIteratorPosition
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import io.micrometer.core.instrument.Counter
-import io.vertx.core.Context
-import io.vertx.core.Vertx
 import kotlinx.coroutines.*
 import kotlinx.coroutines.future.await
 import mu.KLogging
@@ -24,12 +22,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 
-/**
- * TODO: Evaluate how to identify resharding situations. On pull approach an null next shard iterator is the signal, but what happen on enhanced fan out?
- */
 internal class EnhancedFanoutFetcher(
-    private val vertx: Vertx,
-    private val context: Context,
     fetcherOptions: FetcherOptions,
     private val enhancedOptions: EnhancedFanOutOptions,
     clusterName: OrchestraClusterName,
@@ -99,13 +92,14 @@ internal class EnhancedFanoutFetcher(
                                 logger.info { "Enhanced fan out on stream \"$streamName\" and shard \"$shardId\" cancelled. Fetcher stopped" }
                             }
                         } else {
-                            if (it is ResourceInUseException) {
-                                logger.info { "Enhanced fan out subscription did fail on stream \"$streamName\" and shard \"$shardId\", because consumer was not ready. Will resubscribe" }
-                            } else {
-                                logger.warn(it) { "Enhanced fan out subscription did end exceptionally on stream \"$streamName\" and shard \"$shardId\". Will resubscribe" }
+                            when {
+                                it is ResourceInUseException -> logger.info { "Enhanced fan out subscription did fail on stream \"$streamName\" and shard \"$shardId\", because consumer was not ready. Will resubscribe" }
+                                running -> logger.warn(it) { "Enhanced fan out subscription did end exceptionally on stream \"$streamName\" and shard \"$shardId\". Will resubscribe" }
+                                else -> logger.info { "Enhanced fan out subscription did end \"$streamName\" and shard \"$shardId\" as fetcher is no more running" }
                             }
                         }
                     }
+                    cancelSubscription()
                 }
             }
         }
@@ -149,7 +143,7 @@ internal class EnhancedFanoutFetcher(
         val responseHandler = SubscribeToShardResponseHandler.builder()
             .subscriber(Supplier {
                 EventSubscriber(
-                    vertx, context, scope, streamName, shardId, streamWriter, currentSequenceNumberRef, metricCounter
+                    scope, streamName, shardId, streamWriter, currentSequenceNumberRef, metricCounter
                 ).also { this.subscriptionControl = it }
             })
             .build()
@@ -254,8 +248,6 @@ internal class EnhancedFanoutFetcher(
 }
 
 private class EventSubscriber(
-    private val vertx: Vertx,
-    private val context: Context,
     private val scope: CoroutineScope,
     private val streamName: String,
     private val shardId: ShardId,
@@ -266,44 +258,46 @@ private class EventSubscriber(
 
     private companion object : KLogging()
 
+    @Volatile
     private lateinit var subscription: Subscription
 
     private var finished = false
 
     override fun onSubscribe(s: Subscription) {
-        context.runOnContext {
-            this.subscription = s
-            subscription.request(1)
-            logger.debug { "Event subscriber started on stream \"$streamName\" and shard \"$shardId\"." }
-        }
+        this.subscription = s
+        requestForNextEvent()
+        logger.debug { "Event subscriber started on stream \"$streamName\" and shard \"$shardId\"." }
     }
 
     override fun onNext(event: SubscribeToShardEventStream) {
+        if (finished) {
+            return
+        }
         if (event is SubscribeToShardEvent) {
             scope.launch {
-                val latestRecord = event.records().lastOrNull()
-                val continuationSequenceNumber = event.continuationSequenceNumber()
-                currentSequenceNumberRef.value = if (continuationSequenceNumber != null) {
-                    if (latestRecord != null) {
-                        if (latestRecord.sequenceNumber() == continuationSequenceNumber) {
-                            SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AFTER)
+                try {
+                    val latestRecord = event.records().lastOrNull()
+                    val continuationSequenceNumber = event.continuationSequenceNumber()
+                    currentSequenceNumberRef.value = if (continuationSequenceNumber != null) {
+                        if (latestRecord != null) {
+                            if (latestRecord.sequenceNumber() == continuationSequenceNumber) {
+                                SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AFTER)
+                            } else {
+                                SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AT)
+                            }
                         } else {
                             SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AT)
                         }
                     } else {
-                        SequenceNumber(continuationSequenceNumber, SequenceNumberIteratorPosition.AT)
+                        null
                     }
-                } else {
-                    null
+                    streamWriter.writeToStream(event)
+                    runCatching { metricCounter?.increment(event.records().size.toDouble()) }
+                } catch (e: Exception) {
+                    logger.warn(e) { "Unable to write event on stream \"$streamName\" and shard \"$shardId\" to record stream \"$event\"." }
+                } finally {
+                    requestForNextEvent()
                 }
-
-                streamWriter.writeToStream(event)
-                runCatching { metricCounter?.increment(event.records().size.toDouble()) }
-            }.invokeOnCompletion {
-                if (it != null) {
-                    logger.warn(it) { "Unable to write event on stream \"$streamName\" and shard \"$shardId\" to record stream \"$event\"." }
-                }
-                requestForNextEvent()
             }
         } else {
             logger.debug { "Received unprocessable event \"$event\" on stream \"$streamName\" and shard \"$shardId\"." }
@@ -321,11 +315,11 @@ private class EventSubscriber(
         if (finished.not()) {
             logger.warn(t) { "Error during streaming on stream \"$streamName\" and shard \"$shardId\"." }
         }
-        finish()
+        cancel()
     }
 
     override fun onComplete() {
-        finish()
+        cancel()
         logger.debug { "Subscription on stream \"$streamName\" and shard \"$shardId\" did end." }
     }
 
@@ -337,7 +331,10 @@ private class EventSubscriber(
     }
 
     private fun finish() {
-        finished = true
+        if (finished.not()) {
+            logger.info { "Finish subscriber on stream \"$streamName\" and shard \"$shardId\"" }
+            finished = true
+        }
     }
 }
 
