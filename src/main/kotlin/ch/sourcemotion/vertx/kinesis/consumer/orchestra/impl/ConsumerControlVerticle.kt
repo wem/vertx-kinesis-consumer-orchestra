@@ -166,9 +166,12 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
     }
 
     private suspend fun ShardIdList.filterUnavailableShardIds(): ShardIdList {
+        val existingShardIds = kinesisClient.listShardsSafe(options.clusterName.streamName).map { it.shardIdTyped() }
         val unavailableShardIds =
-            shardStatePersistence.getFinishedShardIds() + shardStatePersistence.getShardIdsInProgress()
-        return toMutableList().filterNot { unavailableShardIds.contains(it) }
+            shardStatePersistence.getFinishedShardIds(existingShardIds) + shardStatePersistence.getShardIdsInProgress(
+                existingShardIds
+            )
+        return filterNot { unavailableShardIds.contains(it) }
     }
 
     private fun consumerCapacity() = options.loadConfiguration.maxShardsCount - consumerDeploymentIds.size

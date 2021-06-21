@@ -64,11 +64,11 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         logger.info { "Kinesis consumer orchestra Redis shard state persistence stopped" }
     }
 
-    override fun getShardIdsInProgress(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
-        val keyWildcardPattern = redisKeyFactory.createShardProgressFlagKeyWildcard()
-        val foundEntries = scanFor(keyWildcardPattern)
-        foundEntries.map { extractShardId(it) }
-    }
+    override fun getShardIdsInProgress(shardIds: List<String>, handler: Handler<AsyncResult<List<String>>>) =
+        withRetry(handler) {
+            val shardIdKeys = shardIds.map { redisKeyFactory.createShardProgressFlagKey(it.asShardIdTyped()) }
+            mgetFilter(shardIdKeys, shardIds, 1)
+        }
 
     override fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
         val key = redisKeyFactory.createShardProgressFlagKey(shardId.asShardIdTyped())
@@ -129,11 +129,11 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
             null
         }
 
-    override fun getFinishedShardIds(handler: Handler<AsyncResult<List<String>>>) = withRetry(handler) {
-        val keyWildcardPattern = redisKeyFactory.createShardFinishedRedisKeyWildcard()
-        val foundEntries = scanFor(keyWildcardPattern)
-        foundEntries.map { extractShardId(it) }
-    }
+    override fun getFinishedShardIds(shardIds: List<String>, handler: Handler<AsyncResult<List<String>>>) =
+        withRetry(handler) {
+            val shardIdKeys = shardIds.map { redisKeyFactory.createShardFinishedKey(it.asShardIdTyped()) }
+            mgetFilter(shardIdKeys, shardIds, 1)
+        }
 
     override fun flagMergeParentReshardingReady(
         parentShardId: String,
@@ -162,8 +162,21 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
             )?.toInteger() ?: 0
         }
 
-    private fun extractShardId(keyContainsShardId: String) =
-        "shardId-${keyContainsShardId.substringAfter("shardId-")}"
+    private suspend fun mgetFilter(keys: List<String>, toFilter: List<String>, expectedIntValue: Int) : List<String> {
+        if (keys.size != toFilter.size) {
+            throw IllegalAccessException("MGET filter expect same count of keys and list of element to filter. " +
+                    "keys=${keys.size}, toFilter=${toFilter.size}")
+        }
+        val cmd = Request.cmd(Command.MGET).apply {
+            keys.forEach { shardId -> arg(shardId) }
+        }
+        val response = redis.sendAwait(cmd)
+        return if (response != null) {
+            toFilter.filterIndexed { index, _ ->
+                response[index]?.toInteger() == expectedIntValue
+            }
+        } else emptyList()
+    }
 
     private fun <T> withRetry(handler: Handler<AsyncResult<T>>, task: suspend Redis.() -> T) {
         launch {
@@ -194,25 +207,11 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         }
     }
 
-    private suspend fun Redis.scanFor(pattern: String, cursor: Int = 0): List<String> {
-        val response = sendAwait(
-            Request.cmd(Command.SCAN).arg(cursor).arg("MATCH").arg(pattern).arg("COUNT").arg(options.scanCount)
-        )
-        return if (response != null) {
-            val nextCursor = response.first().toInteger()
-            val foundEntries = response.last().map { it.toString(Charsets.UTF_8) }
-            if (nextCursor == 0) {
-                foundEntries
-            } else foundEntries + scanFor(pattern, nextCursor)
-        } else emptyList()
-    }
-
     data class Options(
         val applicationName: String,
         val streamName: String,
         val redisHeimdallOptions: RedisHeimdallOptions,
-        val shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS,
-        val scanCount: Int = 10 // Default value used by Redis
+        val shardProgressExpirationMillis: Long = VertxKinesisOrchestraOptions.DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS
     )
 }
 
