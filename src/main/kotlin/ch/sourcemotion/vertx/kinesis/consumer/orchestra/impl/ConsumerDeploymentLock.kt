@@ -30,7 +30,7 @@ internal class ConsumerDeploymentLock(
 ) {
     internal companion object : KLogging()
 
-    suspend inline fun doLocked(block: () -> Unit) {
+    suspend inline fun <T> doLocked(block: () -> T) : T {
         val deploymentKey = redisKeyFactory.createDeploymentLockKey()
         val keys = listOf(deploymentKey)
         val args = listOf(lockExpiration.toMillis().toString())
@@ -47,7 +47,7 @@ internal class ConsumerDeploymentLock(
             }
         }
 
-        taskResult.getOrThrow()
+        return taskResult.getOrThrow()
     }
 
     private suspend fun acquireLock(deploymentKey: String, luaKeys: List<String>, luaArgs: List<String>) {
