@@ -3,8 +3,10 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.shouldBe
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
@@ -63,7 +65,7 @@ internal class ConsumerDeploymentLockTest : AbstractRedisTest() {
         }
 
     @Test
-    internal fun lock_acquired_when_do_within_lock(testContext: VertxTestContext) =
+    internal fun lock_acquired_flag_set(testContext: VertxTestContext) =
         asyncTest(testContext, 1) { checkpoint ->
             sut.doLocked {
                 deploymentLockAcquired().shouldBeTrue()
@@ -72,19 +74,32 @@ internal class ConsumerDeploymentLockTest : AbstractRedisTest() {
         }
 
     @Test
-    internal fun multiple_locks_in_a_row(testContext: VertxTestContext) = testContext.async(10) { checkpoint ->
-        var currentlyLocked = false
+    internal fun pending_locks(testContext: VertxTestContext) = testContext.async(10) { checkpoint ->
+        var currentLocks = 0
         repeat(10) {
             launch {
                 sut.doLocked {
-                    currentlyLocked.shouldBeFalse()
-                    currentlyLocked = true
+                    currentLocks.shouldBe(0)
+                    ++currentLocks
                     delay(10)
-                    currentlyLocked = false
+                    currentLocks.shouldBe(1)
+                    --currentLocks
                     checkpoint.flag()
                 }
             }
         }
+    }
+
+    @Test
+    internal fun exception_within_lock_block(testContext: VertxTestContext) = testContext.async {
+        val exceptionMsg = "Test exception"
+        val cause = shouldThrow<Exception> {
+            sut.doLocked {
+                throw Exception(exceptionMsg)
+            }
+        }
+        deploymentLockAcquired().shouldBeFalse()
+        cause.message.shouldBe(exceptionMsg)
     }
 
     private suspend fun deploymentLockAcquired() = redisClient.send(
