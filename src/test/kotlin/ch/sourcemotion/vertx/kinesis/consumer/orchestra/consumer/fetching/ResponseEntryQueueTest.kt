@@ -136,6 +136,29 @@ internal class ResponseEntryQueueTest : AbstractVertxTest() {
         }
     }
 
+    @Test
+    internal fun send_and_receive_1000000_elements(testContext: VertxTestContext) {
+        val expectedElements = 1000000
+        val responseEntries = responseEntryListOf(100)
+        testContext.async(expectedElements) { checkpoint ->
+            val sut = ResponseEntryQueue(100)
+            val sendTask = {
+                defaultTestScope.launch {
+                    sut.send(responseEntries)
+                }
+            }
+            defaultTestScope.launch {
+                while (true) {
+                    val elements = sut.receive()
+                    repeat(elements.size) { checkpoint.flag() }
+                }
+            }
+            repeat(10000) {
+                sendTask().join()
+            }
+        }
+    }
+
     private fun List<ResponseEntry>.validateEntryOrdering() {
         forEachIndexed { idx, responseEntry ->
             responseEntry.record.shouldNotBeNull().data().asUtf8String().shouldBe("$idx")
