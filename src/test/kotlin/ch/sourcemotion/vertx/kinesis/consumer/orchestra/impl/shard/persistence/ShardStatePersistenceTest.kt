@@ -43,9 +43,26 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
     }
 
     @Test
-    internal fun flagShardInProgress(testContext: VertxTestContext) = asyncTest(testContext) {
+    internal fun flag_shard_in_progress(testContext: VertxTestContext) = asyncTest(testContext) {
         sut.flagShardInProgress(shardId).shouldBeTrue()
         sut.getShardIdsInProgress(listOf(shardId)).shouldContainExactly(shardId)
+    }
+
+    @Test
+    internal fun flag_shards_in_progress(testContext: VertxTestContext) = asyncTest(testContext) {
+        val shards = ShardIdGenerator.generateShardIdList(10)
+        sut.flagShardsInProgress(shards, 10000)
+        val shardsInProgress = sut.getShardIdsInProgress(shards)
+        shardsInProgress.shouldContainExactlyInAnyOrder(shards)
+    }
+
+    @Test
+    internal fun flag_shards_in_progress_expiration(testContext: VertxTestContext) = asyncTest(testContext) {
+        val shards = ShardIdGenerator.generateShardIdList(10)
+        sut.flagShardsInProgress(shards, 100)
+        delay(101)
+        val shardsInProgress = sut.getShardIdsInProgress(shards)
+        shardsInProgress.shouldBeEmpty()
     }
 
     @Test
@@ -164,7 +181,6 @@ internal class ShardStatePersistenceTest : AbstractRedisTest(false) {
             }
             sut.getShardIdsInProgress(shardIds).shouldContainExactlyInAnyOrder(shardIds)
         }
-
 
     /*
      * Network issue tests

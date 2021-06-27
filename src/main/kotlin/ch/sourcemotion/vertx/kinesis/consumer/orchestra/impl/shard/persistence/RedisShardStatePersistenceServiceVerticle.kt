@@ -27,6 +27,8 @@ import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
 import io.vertx.redis.client.impl.types.ErrorType
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import mu.KLogging
@@ -75,6 +77,13 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         sendAwait(
             Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(options.shardProgressExpirationMillis)
         )?.okResponseAsBoolean().isTrue()
+    }
+
+    override fun flagShardsInProgress(shardIds: List<String>, expirationMillis: Long, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
+        val keys = shardIds.map { redisKeyFactory.createShardProgressFlagKey(it.asShardIdTyped()) }
+        keys.map { key ->
+            async { sendAwait(Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)) }
+        }.awaitAll().all { it?.okResponseAsBoolean().isTrue() }
     }
 
     override fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>) =

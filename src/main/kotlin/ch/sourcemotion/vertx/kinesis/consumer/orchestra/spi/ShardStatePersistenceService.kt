@@ -36,6 +36,14 @@ interface ShardStatePersistenceService {
     fun flagShardInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>)
 
     /**
+     * Flags a shard as currently fetched by consumer of an orchestra instance and so in progress. The flag should
+     * expire according to [ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.shardProgressExpiration].
+     * The expiration should prevent the orchestration from death locks if an orchestra instance was not gracefully
+     * stopped.
+     */
+    fun flagShardsInProgress(shardIds: List<String>, expirationMillis: Long, handler: Handler<AsyncResult<Boolean>>)
+
+    /**
      * Removes a the flag that's a shard is currently fetched by a consumer of an orchestra instance
      */
     fun flagShardNoMoreInProgress(shardId: String, handler: Handler<AsyncResult<Boolean>>)
@@ -94,6 +102,8 @@ class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersiste
         awaitResult<List<String>> { getShardIdsInProgress(shardIds.map { shardId ->  "$shardId" }, it) }.map { it.asShardIdTyped() }
 
     suspend fun flagShardInProgress(shardId: ShardId) = awaitResult<Boolean> { flagShardInProgress(shardId.id, it) }
+    suspend fun flagShardsInProgress(shardIds: List<ShardId>, expirationMillis: Long) =
+        awaitResult<Boolean> { flagShardsInProgress(shardIds.map { shardId -> "$shardId"}, expirationMillis, it) }
 
     suspend fun flagShardNoMoreInProgress(shardId: ShardId) =
         awaitResult<Boolean> { flagShardNoMoreInProgress(shardId.id, it) }
