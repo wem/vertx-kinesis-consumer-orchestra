@@ -1,6 +1,6 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeReshardingEvent
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.SplitReshardingEvent
@@ -14,7 +14,7 @@ internal object OrchestraCodecs {
     fun deployCodecs(eventBus: EventBus) {
         deployCodec(eventBus, MergeReshardingEvent::class.java, LocalCodec("merge-resharding-event-codec"))
         deployCodec(eventBus, SplitReshardingEvent::class.java, LocalCodec("split-resharding-event-codec"))
-        deployCodec(eventBus, StartConsumersCmd::class.java, LocalCodec("start-consumers-cmd-codec"))
+        deployCodec(eventBus, StartConsumerCmd::class.java, LocalCodec("start-consumer-cmd-codec"))
         deployCodec(eventBus, StopConsumerCmd::class.java, LocalCodec("stop-consumer-cmd-codec"))
     }
 

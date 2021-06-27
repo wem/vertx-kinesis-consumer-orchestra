@@ -5,7 +5,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.RecordDataForwardKinesisConsumerTestVerticle.Companion.RECORDS_RECEIVED_ACK_ADDR
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.assertions.throwables.shouldThrow
@@ -58,7 +58,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
             deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
 
             kinesisClient.putRecords(recordBunching, recordDataSupplier = { recordData })
         }
@@ -95,13 +95,17 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
                 }
             }
 
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint).addVerifier(2, 4)
+            val activeConsumerCountVerifier = ConsumedShardCountVerifier
+                .withStartNotificationVerifier(testContext, checkpoint)
+                .addSequentialVerifier(2)
+                .addSequentialVerifier(3)
+                .addSequentialVerifier(4)
+                .addSequentialVerifier(5)
 
             eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
             deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
 
             // We put the records with explicit hash key instead of partition key to ensure fair distribution between shards
             kinesisClient.putRecordsExplicitHashKey(recordBatches, { SdkBytes.fromUtf8String("${DATA_STRING}_$it") })
@@ -114,32 +118,34 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
 
         val activeConsumerCountVerifier =
             ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                .addVerifier(2, 1)
-                .addVerifier(3, 2)
+                .addSequentialVerifier(2)
+                .addSequentialVerifier(3)
 
         eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
         deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-        streamDescription.shardIds().forEach { sendStartConsumersCmd(listOf(it)) }
+        streamDescription.shardIds().forEach { sendStartConsumerCmds(listOf(it)) }
     }
 
     @Test
-    internal fun stop_consumers(testContext: VertxTestContext) = testContext.asyncDelayed(3) { checkpoint ->
+    internal fun stop_consumers(testContext: VertxTestContext) = testContext.asyncDelayed(5) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
 
-        val activeConsumerCountVerifier =
-            ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                .addVerifier(2) { msg ->
-                    verify { msg.body().shouldBe(2) }
-                    defaultTestScope.launch { streamDescription.shardIds().forEach { stopConsumer(it) } }
-                }
-                .addVerifier(3, 1)
-                .addVerifier(4, 0)
+        val activeConsumerCountVerifier = ConsumedShardCountVerifier
+            .withStartNotificationVerifier(testContext, checkpoint)
+            .addSequentialVerifier(2)
+            .addVerifier(3) { msg ->
+                verify { msg.body().shouldBe(2) }
+                defaultTestScope.launch { streamDescription.shardIds().forEach { stopConsumer(it) } }
+                checkpoint.flag()
+            }
+            .addVerifier(4, 1)
+            .addVerifier(5, 0)
 
         eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
         deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-        sendStartConsumersCmd(streamDescription.shardIds())
+        sendStartConsumerCmds(streamDescription.shardIds())
     }
 
     @Test
@@ -153,7 +159,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             )
 
             deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumersCmd(emptyList())
+            sendStartConsumerCmds(emptyList())
         }
 
     @Test
@@ -162,12 +168,14 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(4)
 
             val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint).addVerifier(2, 2)
+                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
+                    .addSequentialVerifier(2)
+                    .addVerifier(3, 2)
 
             eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
             deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
         }
 
     @Test
@@ -183,7 +191,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             shardStatePersistenceService.flagShardInProgress(streamDescription.shardIds().first())
 
             deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
         }
 
     @Test
@@ -199,7 +207,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             shardStatePersistenceService.saveFinishedShard(streamDescription.shardIds().first(), 10000)
 
             deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
         }
 
     @Test
@@ -216,7 +224,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             shardStatePersistenceService.saveFinishedShard(streamDescription.shardIds()[1], 10000)
 
             deployConsumerControl(LoadConfiguration.createConsumeExact(3))
-            sendStartConsumersCmd(streamDescription.shardIds())
+            sendStartConsumerCmds(streamDescription.shardIds())
         }
 
     @Test
@@ -233,7 +241,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
                         // Start a consumer that exceed capacity, and no left shards
                         defaultTestScope.launch {
                             shouldThrow<ReplyException> {
-                                sendStartConsumersCmd(
+                                sendStartConsumerCmds(
                                     streamDescription.shardIds().takeLast(1)
                                 )
                             }
@@ -244,12 +252,14 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
             eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
 
             deployConsumerControl(LoadConfiguration.createConsumeExact(1))
-            sendStartConsumersCmd(streamDescription.shardIds().take(1))
+            sendStartConsumerCmds(streamDescription.shardIds().take(1))
         }
 
-    private suspend fun sendStartConsumersCmd(shardIds: ShardIdList) {
-        val cmd = StartConsumersCmd(shardIds, ShardIteratorStrategy.EXISTING_OR_LATEST)
-        eventBus.requestAwait<Unit>(EventBusAddr.consumerControl.startConsumersCmd, cmd)
+    private suspend fun sendStartConsumerCmds(shardIds: ShardIdList) {
+        shardIds.forEach { shardId ->
+            val cmd = StartConsumerCmd(shardId, ShardIteratorStrategy.EXISTING_OR_LATEST)
+            eventBus.requestAwait<Unit>(EventBusAddr.consumerControl.startConsumerCmd, cmd)
+        }
     }
 
     private suspend fun stopConsumer(shardId: ShardId) {
@@ -323,9 +333,11 @@ private class ConsumedShardCountVerifier private constructor(
         addVerifier(1, 0)
     }
 
-    fun addVerifier(eventNumber: Int, activeConsumers: Int): ConsumedShardCountVerifier {
+    fun addSequentialVerifier(eventNumber: Int): ConsumedShardCountVerifier = addVerifier(eventNumber, eventNumber - 1)
+
+    fun addVerifier(eventNumber: Int, expectedActiveConsumers: Int): ConsumedShardCountVerifier {
         verifiers[eventNumber] = { msg ->
-            verify { msg.body().shouldBe(activeConsumers) }
+            verify { msg.body().shouldBe(expectedActiveConsumers) }
             checkpoint.flag()
         }
         return this

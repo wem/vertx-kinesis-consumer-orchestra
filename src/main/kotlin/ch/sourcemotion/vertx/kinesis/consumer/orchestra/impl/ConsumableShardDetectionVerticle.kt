@@ -1,23 +1,29 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNull
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
+import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.Message
 import io.vertx.kotlin.core.eventbus.completionHandlerAwait
 import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import io.vertx.redis.client.Redis
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
+import java.time.Duration
 import kotlin.LazyThreadSafetyMode.NONE
-import kotlin.random.Random
 
 /**
  * Verticle that will detect consumable shards. The detection will stopp if the VKCO instance consumes the configured max.
@@ -30,8 +36,20 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     private var initialDetection = true
 
     private val options by lazy(NONE) { config.mapTo(Options::class.java) }
-    private val detectionInterval by lazy(NONE) { options.detectionInterval + Random.nextLong(0, options.detectionIntervalBackoff) }
-    private val startCmdDeliveryOptions by lazy(NONE) { deliveryOptionsOf(localOnly = true, sendTimeout = options.startCmdDeliveryTimeout) }
+    private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, options.redisHeimdallOptions) }
+    private val startCmdDeliveryOptions by lazy(NONE) {
+        deliveryOptionsOf(localOnly = true, sendTimeout = options.startCmdDeliveryTimeoutMillis)
+    }
+
+    private val detectionLock by lazy(NONE) {
+        ConsumerDeploymentLock(
+            redis,
+            LuaExecutor(redis),
+            RedisKeyFactory(options.clusterName),
+            Duration.ofMillis(options.detectionLockExpirationMillis),
+            Duration.ofMillis(options.detectionLockAcquisitionIntervalMillis)
+        )
+    }
 
     private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
         SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
@@ -59,7 +77,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         vertx.eventBus().localConsumer(
             EventBusAddr.detection.consumedShardCountNotification, ::onConsumedShardCountNotification
         ).completionHandlerAwait()
-        logger.debug { "Consumable shard detector verticle started with an detection interval of $detectionInterval" }
+        logger.debug { "Consumable shard detector verticle started with an detection interval of ${options.detectionInterval}" }
     }
 
     override suspend fun stop() {
@@ -87,19 +105,32 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         if (possibleShardCountToStartConsume <= 0 || detectionInProgress) return
         detectionInProgress = true
         launch {
-            val existingShards = kinesisClient.listShardsSafe(options.clusterName.streamName)
-            val existingShardIds = existingShards.map { it.shardIdTyped() }
-            val finishedShardIds = shardStatePersistence.getFinishedShardIds(existingShardIds)
-            val shardIdsInProgress = shardStatePersistence.getShardIdsInProgress(existingShardIds)
-            val unavailableShardIds = shardIdsInProgress + finishedShardIds
+            val shardIdsToStartConsuming = detectionLock.doLocked {
+                val existingShards = kinesisClient.listShardsSafe(options.clusterName.streamName)
+                val existingShardIds = existingShards.map { it.shardIdTyped() }
+                val finishedShardIdsAsync = async { shardStatePersistence.getFinishedShardIds(existingShardIds) }
+                val shardIdsInProgressAsync = async { shardStatePersistence.getShardIdsInProgress(existingShardIds) }
+                val finishedShardIds = finishedShardIdsAsync.await()
+                val shardIdsInProgress = shardIdsInProgressAsync.await()
+                val unavailableShardIds = shardIdsInProgress + finishedShardIds
 
-            val availableShards = existingShards
-                .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
+                val availableShards = existingShards
+                    .filterNot { shard -> unavailableShardIds.contains(shard.shardIdTyped()) }
 
-            val shardIdListToConsume =
-                ConsumableShardIdListFactory.create(existingShards, availableShards, finishedShardIds, possibleShardCountToStartConsume)
+                ConsumableShardIdListFactory.create(
+                    existingShards,
+                    availableShards,
+                    finishedShardIds,
+                    possibleShardCountToStartConsume
+                ).also {
+                    if (shardStatePersistence.flagShardsInProgress(it, options.startCmdDeliveryTimeoutMillis).not()) {
+                        logger.warn { "Unable to flag all shards ${it.joinToString(",")} as in progress. Cancel detection run." }
+                        return@launch
+                    }
+                }
+            }
 
-            if (shardIdListToConsume.isNotEmpty()) {
+            if (shardIdsToStartConsuming.isNotEmpty()) {
 
                 // On the initial detection we use the configured iterator strategy.
                 // Afterwards, on later detected not consumed shards we use existing or latest,
@@ -111,15 +142,24 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
                 }
 
                 logger.info {
-                    "Consumable shards detected ${availableShards.joinToString { it.shardId() }}. " +
-                            "Will send start command for shards ${shardIdListToConsume.joinToString()} with iterator " +
+                    "Send start command for shards ${shardIdsToStartConsuming.joinToString()} with iterator " +
                             "strategy \"$iteratorStrategy\" according to \"parent(s) must be finished first\" rule."
                 }
 
-                val cmd = StartConsumersCmd(shardIdListToConsume, iteratorStrategy)
-                vertx.eventBus().requestAwait<Unit>(
-                    EventBusAddr.consumerControl.startConsumersCmd, cmd, startCmdDeliveryOptions
-                )
+                val successfulStates = shardIdsToStartConsuming.map { shardIdToStart ->
+                    runCatching {
+                        vertx.eventBus().requestAwait<Unit>(
+                            EventBusAddr.consumerControl.startConsumerCmd, StartConsumerCmd(shardIdToStart, iteratorStrategy), startCmdDeliveryOptions
+                        )
+                        true
+                    }.getOrElse {
+                        shardStatePersistence.flagShardNoMoreInProgress(shardIdToStart)
+                        false
+                    }
+                }
+                if (successfulStates.all { it }) {
+                    logger.info { "Start command for consumers of shards ${shardIdsToStartConsuming.joinToString()} successful" }
+                }
             } else {
                 logger.info { "Consumable shard detection did run, but there was no consumable shard to consume on stream \"${options.clusterName.streamName}\"" }
             }
@@ -138,7 +178,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     private fun startDetection() {
         if (detectionTimerId.isNull()) {
             logger.info { "Start consumable shards detection on stream \"${options.clusterName.streamName}\"" }
-            detectionTimerId = vertx.setPeriodic(detectionInterval, ::detectNotConsumedShards)
+            detectionTimerId = vertx.setPeriodic(options.detectionInterval, ::detectNotConsumedShards)
         } else {
             logger.info { "Consumable shards detection already running" }
         }
@@ -162,8 +202,10 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         val clusterName: OrchestraClusterName,
         val maxShardCountToConsume: Int,
         val detectionInterval: Long,
-        val detectionIntervalBackoff: Long,
-        val startCmdDeliveryTimeout: Long = DeliveryOptions.DEFAULT_TIMEOUT,
-        val initialIteratorStrategy: ShardIteratorStrategy
+        val detectionLockExpirationMillis: Long,
+        val detectionLockAcquisitionIntervalMillis: Long,
+        val startCmdDeliveryTimeoutMillis: Long = DeliveryOptions.DEFAULT_TIMEOUT,
+        val initialIteratorStrategy: ShardIteratorStrategy,
+        val redisHeimdallOptions: RedisHeimdallOptions
     )
 }
