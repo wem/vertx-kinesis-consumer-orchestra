@@ -147,3 +147,11 @@ Bumped AWS SDK to 2.16.85
 ## [0.0.9.5]
 ### Fixed / Maintenance
 Bumped AWS SDK to 2.16.88 and Vert.x to 3.9.8 (4.1.65.Final) because of potential Netty incompatibilities.
+
+## [0.0.9.6]
+### Improved
+#### Consumable shard detection and consumer deployment
+More reliable consumable shard detection and consumer deployment. 
+Moved lock from control to detection verticle, so concurrent deployments are faster as just the shard id lookup / determination is locked and not the whole deployment. 
+Deploy only one consumer per start command for more simple and reliable deployment.
+Also, the shards for them a consumer will get deployed, the progress flag will be set after detection and before deployment.
