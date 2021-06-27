@@ -2,17 +2,12 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
-import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.eventbus.Message
@@ -20,12 +15,9 @@ import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
-import io.vertx.redis.client.Redis
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import mu.KLogging
-import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
-import java.time.Duration
 import kotlin.LazyThreadSafetyMode.NONE
 
 internal class ConsumerControlVerticle : CoroutineVerticle() {
@@ -36,33 +28,10 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
 
     private val options by lazy(NONE) { config.mapTo(Options::class.java) }
 
-    private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, options.redisHeimdallOptions) }
-
-    private val shardStatePersistence by lazy(NONE) {
-        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(
-            vertx
-        )
-    }
-
-    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
-        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(context)
-    }
-
-    private val consumerDeploymentLock by lazy(NONE) {
-        ConsumerDeploymentLock(
-            redis,
-            LuaExecutor(redis),
-            RedisKeyFactory(options.clusterName),
-            Duration.ofMillis(options.consumerDeploymentLockExpiration),
-            Duration.ofMillis(options.consumerDeploymentLockRetryInterval)
-        )
-    }
-
     override suspend fun start() {
         vertx.eventBus().localConsumer(EventBusAddr.consumerControl.stopConsumerCmd, ::onStopConsumerCmd)
             .completion().await()
-        vertx.eventBus().localConsumer(EventBusAddr.consumerControl.startConsumersCmd, ::onStartConsumersCmd)
+        vertx.eventBus().localConsumer(EventBusAddr.consumerControl.startConsumerCmd, ::onStartConsumerCmd)
             .completion().await()
 
         notifyAboutActiveConsumers() // Directly after start there would be no consumer, so we start the detection.
@@ -78,6 +47,7 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         val deploymentIdToUndeploy = consumerDeploymentIds.remove(shardId)
         if (deploymentIdToUndeploy.isNotNullOrBlank()) {
             vertx.undeploy(deploymentIdToUndeploy) {
+                logAndNotifyAboutActiveConsumers()
                 if (it.succeeded()) {
                     logger.info { "Consumer for shard \"$shardId\" stopped" }
                     msg.ack()
@@ -87,59 +57,40 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
             }
         } else {
             logger.info { "Unable to stop consumer for shard \"$shardId\", because no known consumer for this shard" }
+            logAndNotifyAboutActiveConsumers()
             msg.fail(StopConsumerCmd.UNKNOWN_CONSUMER_FAILURE, "Unknown consumer")
         }
-        logAndNotifyAboutActiveConsumers()
     }
 
-    private fun onStartConsumersCmd(msg: Message<StartConsumersCmd>) {
+    private fun onStartConsumerCmd(msg: Message<StartConsumerCmd>) {
         val cmd = msg.body()
-        if (cmd.shardIds.isEmpty()) {
+        val shardId = cmd.shardId
+        if (consumerDeploymentIds.containsKey(shardId)) {
             msg.ack()
             return
         }
-        // If this VKCO instance is already consuming the configured max. count of shards we skip and reply failure
         if (consumerCapacity() <= 0) {
-            logger.warn { "Consumer control unable to start consumer(s) for shards ${cmd.shardIds.joinToString()} because no consumer capacity left" }
+            logger.warn { "Consumer control unable to start consumer for shard $shardId because no consumer capacity left" }
             logAndNotifyAboutActiveConsumers()
-            msg.fail(StartConsumersCmd.CONSUMER_CAPACITY_FAILURE, "No consumer capacity left")
+            msg.fail(StartConsumerCmd.CONSUMER_CAPACITY_FAILURE, "No consumer capacity left")
             return
         }
         launch {
             try {
-                withTimeout(options.consumerDeploymentLockExpiration) {
-                    consumerDeploymentLock.doLocked {
-
-                        // We filter the list of shard ids to consume for they got in progress in the meanwhile.
-                        // This can happen if 2 or more VKCO instances did trigger a consumer start at the (near) exactly same time.
-                        val shardIdsToConsume = cmd.shardIds.filterUnavailableShardIds().take(consumerCapacity())
-
-                        // If just a sub set of shards cannot be consumed because of the left capacity, we log the left ones.
-                        cmd.shardIds.filterNot { shardIdsToConsume.contains(it) }.also {
-                            if (it.isNotEmpty()) {
-                                logger.info {
-                                    "Consumer control unable to start consumer(s) for shards ${it.joinToString()} " +
-                                            "because of its consumer limit of \"${options.loadConfiguration.maxShardsCount}\""
-                                }
-                            }
-                        }
-
-                        shardIdsToConsume.forEach {
-                            val consumerOptions = createConsumerVerticleOptions(it, cmd.iteratorStrategy)
-                            startConsumer(
-                                options.consumerVerticleClass,
-                                JsonObject(options.consumerVerticleConfig),
-                                consumerOptions
-                            )
-                        }
-                    }
+                withTimeout(options.consumerDeploymentTimeoutMillis) {
+                    val consumerOptions = createConsumerVerticleOptions(shardId, cmd.iteratorStrategy)
+                    startConsumer(
+                        options.consumerVerticleClass,
+                        JsonObject(options.consumerVerticleConfig),
+                        consumerOptions
+                    )
                 }
+                logAndNotifyAboutActiveConsumers()
                 msg.ack()
             } catch (e: Exception) {
-                logger.warn(e) { "Consumer control unable to start consumers for shards \"${cmd.shardIds.joinToString()}\"" }
-                msg.fail(StartConsumersCmd.CONSUMER_START_FAILURE, e.message)
-            } finally {
+                logger.warn(e) { "Consumer control unable to start consumer for shard \"$shardId\"" }
                 logAndNotifyAboutActiveConsumers()
+                msg.fail(CONSUMER_START_FAILURE, e.message)
             }
         }
     }
@@ -182,15 +133,6 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         vertx.eventBus().send(EventBusAddr.detection.consumedShardCountNotification, consumerDeploymentIds.size)
     }
 
-    private suspend fun ShardIdList.filterUnavailableShardIds(): ShardIdList {
-        val existingShardIds = kinesisClient.listShardsSafe(options.clusterName.streamName).map { it.shardIdTyped() }
-        val unavailableShardIds =
-            shardStatePersistence.getFinishedShardIds(existingShardIds) + shardStatePersistence.getShardIdsInProgress(
-                existingShardIds
-            )
-        return filterNot { unavailableShardIds.contains(it) }
-    }
-
     private fun consumerCapacity() = options.loadConfiguration.maxShardsCount - consumerDeploymentIds.size
 
     private fun createConsumerVerticleOptions(
@@ -212,12 +154,10 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         val clusterName: OrchestraClusterName,
         val redisHeimdallOptions: RedisHeimdallOptions,
         val fetcherOptions: FetcherOptions,
-
         val shardIteratorStrategy: ShardIteratorStrategy,
         val loadConfiguration: LoadConfiguration,
         val errorHandling: ErrorHandling,
-        val consumerDeploymentLockExpiration: Long,
-        val consumerDeploymentLockRetryInterval: Long,
+        val consumerDeploymentTimeoutMillis: Long,
         val consumerVerticleClass: String,
         val consumerVerticleConfig: Map<String, Any>,
         val sequenceNumberImportAddress: String? = null,
@@ -233,8 +173,7 @@ internal fun VertxKinesisOrchestraOptions.asConsumerControlOptions() = ConsumerC
     shardIteratorStrategy,
     loadConfiguration,
     errorHandling,
-    consumerDeploymentLockExpiration.toMillis(),
-    consumerDeploymentLockRetryInterval.toMillis(),
+    consumerDeploymentTimeout.toMillis(),
     consumerVerticleClass,
     consumerVerticleOptions.map,
     kclV1ImportOptions?.importAddress,

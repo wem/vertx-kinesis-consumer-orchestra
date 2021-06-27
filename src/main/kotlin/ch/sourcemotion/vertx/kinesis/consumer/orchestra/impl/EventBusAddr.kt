@@ -19,7 +19,7 @@ internal object EventBusAddr {
     object ConsumerControl {
         private const val ADDR_BASE = "${EventBusAddr.ADDR_BASE}/consumer-orchestration"
         const val stopConsumerCmd = "$ADDR_BASE/cmd/stop-consumer"
-        const val startConsumersCmd = "$ADDR_BASE/cmd/start-consumers"
+        const val startConsumerCmd = "$ADDR_BASE/cmd/start-consumer"
     }
 
     object Detection {

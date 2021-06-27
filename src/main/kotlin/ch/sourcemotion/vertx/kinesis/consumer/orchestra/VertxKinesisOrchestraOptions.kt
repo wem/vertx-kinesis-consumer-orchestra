@@ -12,7 +12,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
@@ -21,6 +20,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.Aws
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.metrics.factory.DisabledAwsClientMetricOptions
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.http.HttpClientOptions
 import io.vertx.core.json.JsonObject
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
@@ -108,22 +108,27 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     val errorHandling: ErrorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
 
     /**
-     * To avoid multiple consumer are processing the same shard, during deployment of them a lock will be acquired.
-     * In the case of ungracefully shutdown of the whole orchestra this expiration should avoid death locks, and therefore
+     * To avoid multiple consumer are processing the same shard, during detection of them a red lock will be acquired.
+     * Eg.g in the case of ungracefully shutdown of the whole orchestra this expiration should avoid death locks, and therefore
      * no consumer can get deployed later.
      */
-    val consumerDeploymentLockExpiration: Duration = Duration.ofMillis(
-        DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS
+    val detectionLockExpiration: Duration = Duration.ofMillis(
+        DEFAULT_DETECTION_LOCK_EXPIRATION_MILLIS
     ),
 
     /**
-     * Interval of the retry to acquire consumer deployment lock. Each orchestra instance have to get acquire the lock during
-     * deployment of the consumer. So the "right" configuration here results in shorten overall
-     * (over all orchestra instances) deployment time.
+     * Interval of the retry to acquire detection lock. Each orchestra instance have to get acquire the lock during
+     * detection of consumable shards.
      */
-    val consumerDeploymentLockRetryInterval: Duration = Duration.ofMillis(
-        DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS
+    val detectionLockAcquisitionInterval: Duration = Duration.ofMillis(
+        DEFAULT_DETECTION_LOCK_ACQUISITION_INTERVAL_MILLIS
     ),
+
+    /**
+     * Max time(out) a deployment of a shard consumers can take, before its handled as failed. Later detections
+     * can retry it.
+     */
+    val consumerDeploymentTimeout: Duration = Duration.ofMillis(DeliveryOptions.DEFAULT_TIMEOUT),
 
     /**
      * Class of record consumer verticle. Each consumer verticle will process one shard. This means
@@ -175,10 +180,9 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_MINIMAL_GET_RECORDS_LIMIT = 300
 
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
-        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_EXPIRATION_MILLIS = 450000L
-        const val DEFAULT_CONSUMER_DEPLOYMENT_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
-        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 2000L
-        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS = 5000L
+        const val DEFAULT_DETECTION_LOCK_EXPIRATION_MILLIS = 10000L
+        const val DEFAULT_DETECTION_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
+        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 1000L
 
         const val DEFAULT_USE_SDK_NETTY_CLIENT = true
 
@@ -256,27 +260,20 @@ data class LoadConfiguration constructor(
      * VKCO startup or after a split resharding.
      */
     val notConsumedShardDetectionInterval: Long,
-
-    /**
-     * Backoff of the detection to spread the deployment / start of consumers.
-     */
-    val notConsumedShardDetectionIntervalBackoff: Long
 ) {
     companion object {
         @JvmOverloads
         @JvmStatic
         fun createConsumeAllShards(
-            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS,
-            notConsumedShardDetectionIntervalBackoff: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
+            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
         ) =
-            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval, notConsumedShardDetectionIntervalBackoff)
+            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval)
 
         @JvmStatic
         fun createConsumeExact(
             exactCount: Int,
-            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS,
-            notConsumedShardDetectionIntervalBackoff: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_BACKOFF_MILLIS
-        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval, notConsumedShardDetectionIntervalBackoff)
+            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
+        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval)
     }
 
     init {
