@@ -144,6 +144,6 @@ Hardening of the timeout handling during consumer deployment.
 #### AWS SDK version
 Bumped AWS SDK to 2.16.85
 
-## [0.0.9.4]
+## [0.0.9.5]
 ### Fixed / Maintenance
 Bumped AWS SDK to 2.16.88 and Vert.x to 3.9.8 (4.1.65.Final) because of potential Netty incompatibilities.
