@@ -2,7 +2,6 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.EventBusAddr
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumersCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
@@ -10,7 +9,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.collections.shouldContain
-import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -101,10 +99,5 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         val childShardId = kinesisClient.streamDescriptionWhenActiveAwait(streamDescription.streamName()).shards()
             .first { parentShardIds.contains(it.shardIdTyped()).not() }.shardIdTyped()
         return childShardId to parentShardIds
-    }
-
-    private fun StartConsumersCmd.shouldContainOneShardId() : ShardId {
-        shardIds.shouldHaveSize(1)
-        return shardIds.first()
     }
 }
