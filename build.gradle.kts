@@ -1,16 +1,15 @@
-import com.jfrog.bintray.gradle.BintrayExtension
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import java.util.*
 
 plugins {
-    kotlin("jvm") version "1.4.31"
-    kotlin("kapt") version "1.4.31"
-    id("com.jfrog.bintray") version "1.8.5"
+    kotlin("jvm") version "1.6.10"
+    kotlin("kapt") version "1.6.10"
+    id("org.jetbrains.dokka") version "1.6.0"
     `maven-publish`
+    signing
 }
 
 repositories {
-    jcenter()
+    mavenCentral()
 }
 
 dependencies {
@@ -26,21 +25,25 @@ dependencies {
     api(vertx("vertx-lang-kotlin-coroutines"))
     api(vertx("vertx-service-discovery"))
     api(vertx("vertx-service-proxy"))
+    api(vertx("vertx-micrometer-metrics"))
     compileOnly(vertx("vertx-codegen"))
 
     kapt("io.vertx:vertx-codegen:${libVersion("vertx")}:processor")
 
     api("software.amazon.awssdk:cloudwatch-metric-publisher:${libVersion("awssdk")}", JacksonExclusion)
     api(awsSdk("kinesis"), JacksonExclusion)
+    api(awsSdk("netty-nio-client"), JacksonExclusion)
     api(awsSdk("dynamodb"), JacksonExclusion)
     api(awsSdk("sts"), JacksonExclusion)
     api("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:${libVersion("coroutines")}")
-    api("ch.sourcemotion.vertx.redis:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
+    api("ch.sourcemotion.vertx:vertx-redis-client-heimdall:${libVersion("vertx-redis-heimdall")}")
 
     api("io.reactiverse:aws-sdk:${libVersion("vertx-aws-sdk")}", AwsSdkExclusion)
 
     api("com.fasterxml.jackson.module:jackson-module-kotlin:${libVersion("jackson")}")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${libVersion("jackson")}")
+    api("com.fasterxml.jackson.dataformat:jackson-dataformat-xml") { version { strictly("${libVersion("jackson")}") } }
+    api("com.fasterxml.jackson.dataformat:jackson-dataformat-cbor") { version { strictly("${libVersion("jackson")}") } }
     api("io.github.microutils:kotlin-logging:${libVersion("kotlin-logging")}")
 
     testImplementation(kotlin("test-junit"))
@@ -48,18 +51,12 @@ dependencies {
     testImplementation("org.junit.vintage:junit-vintage-engine")
     testImplementation("io.kotest:kotest-assertions-core-jvm:${libVersion("kotest")}")
     testImplementation(vertx("vertx-junit5"))
-    testImplementation(vertx("vertx-rx-java"))
-    testImplementation(vertx("vertx-rx-java2"))
     testImplementation("com.nhaarman.mockitokotlin2:mockito-kotlin:${libVersion("mockito-kotlin")}")
     testImplementation("org.apache.logging.log4j:log4j-slf4j-impl:${libVersion("log4j")}")
     testImplementation("org.apache.logging.log4j:log4j-core:${libVersion("log4j")}")
     testImplementation("org.testcontainers:localstack", JacksonExclusion)
     testImplementation("org.testcontainers:toxiproxy", JacksonExclusion)
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}", NettyExclusion)
-}
-
-configurations.forEach {
-    it.exclude("software.amazon.awssdk", "netty-nio-client")
 }
 
 object AwsSdkExclusion : DependencyExclusion(
@@ -100,10 +97,6 @@ fun vertx(module: String) = "io.vertx:$module"
 fun awsSdk(module: String) = "software.amazon.awssdk:$module"
 fun libVersion(suffix: String) = property("version.$suffix")
 
-configure<JavaPluginConvention> {
-    sourceCompatibility = JavaVersion.VERSION_11
-}
-
 tasks {
     withType<KotlinCompile> {
         kotlinOptions.jvmTarget = "11"
@@ -116,33 +109,13 @@ tasks {
     }
 }
 
-val groupId = "ch.sourcemotion.vertx"
-val artifactId = "vertx-kinesis-consumer-orchestra"
-val publicationName = "vertxKinesisConsumerOrchestra"
+val publicationName = "VKCO"
 
-val bintrayUser: String by lazy {
-    "${findProperty("bintray_user")}"
+val publishUsername: String by lazy {
+    "${findProperty("ossrhUsername")}"
 }
-val bintrayApiKey: String by lazy {
-    "${findProperty("bintray_api_key")}"
-}
-
-bintray {
-    user = bintrayUser
-    key = bintrayApiKey
-    setPublications(publicationName)
-
-    pkg(closureOf<BintrayExtension.PackageConfig> {
-        repo = "maven"
-        name = artifactId
-        userOrg = "michel-werren"
-        vcsUrl = "https://github.com/wem/vertx-kinesis-consumer-orchestra"
-        version(closureOf<BintrayExtension.VersionConfig> {
-            name = "${project.version}"
-            released = "${Date()}"
-        })
-        setLicenses("MIT")
-    })
+val publishPassword: String by lazy {
+    "${findProperty("ossrhPassword")}"
 }
 
 val sourcesJar by tasks.registering(Jar::class) {
@@ -150,23 +123,68 @@ val sourcesJar by tasks.registering(Jar::class) {
     from(sourceSets.main.get().allSource)
 }
 
+val javadocJar by tasks.registering(Jar::class) {
+    dependsOn.add(tasks.dokkaJavadoc)
+    archiveClassifier.set("javadoc")
+    from("$buildDir/dokka/javadoc")
+}
+
+val publishUrl = if ("$version".endsWith("SNAPSHOT")) {
+    "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+} else {
+    "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+}
+
 publishing {
     publications {
-        register(publicationName, MavenPublication::class.java) {
+        repositories {
+            maven {
+                name = "ossrh"
+                setUrl(publishUrl)
+                credentials {
+                    username = publishUsername
+                    password = publishPassword
+                }
+            }
+        }
+
+        create(publicationName, MavenPublication::class.java) {
             from(components["java"])
             artifact(sourcesJar.get())
+            artifact(javadocJar.get())
+
             pom {
                 groupId = groupId
                 artifactId = artifactId
                 version = "${project.version}"
+                packaging = "jar"
+                name.set("Vert.x Kinesis consumer orchestra")
+                description.set("Reactive alternative to KCL, based on Vert.x and implemented in Kotlin")
+                url.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                scm {
+                    connection.set("scm:https://github.com/wem/vertx-kinesis-consumer-orchestra.git")
+                    developerConnection.set("scm:https://github.com/wem/vertx-kinesis-consumer-orchestra.git")
+                    url.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                }
                 licenses {
                     license {
                         name.set("The MIT License")
-                        url.set("http://www.opensource.org/licenses/MIT")
+                        url.set("https://www.opensource.org/licenses/MIT")
                         distribution.set("https://github.com/wem/vertx-kinesis-consumer-orchestra")
+                    }
+                }
+                developers {
+                    developer {
+                        id.set("Michel Werren")
+                        name.set("Michel Werren")
+                        email.set("michel.werren@source-motion.ch")
                     }
                 }
             }
         }
     }
+}
+
+signing {
+    sign(publishing.publications[publicationName])
 }
