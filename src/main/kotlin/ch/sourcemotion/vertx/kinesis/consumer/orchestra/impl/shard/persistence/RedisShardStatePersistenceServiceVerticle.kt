@@ -47,7 +47,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
 
     private var serviceRegistration: MessageConsumer<JsonObject>? = null
 
-    private val redis by lazy(NONE) { RedisHeimdall.create(vertx, redisHeimdallOptions) }
+    private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, redisHeimdallOptions) }
 
     private val luaExecutor by lazy(NONE) { LuaExecutor(redis) }
 
@@ -185,7 +185,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
             if (running.isTrue()) {
                 val retryDelay =
                     redisHeimdallOptions.reconnectInterval / 2 // We try more often as the reconnect interval as we don't known when the connection was lost.
-                logger.debug { "Command to Redis failed will retry in $retryDelay millis" }
+                logger.debug(e) { "Command to Redis failed will retry in $retryDelay millis" }
                 delay(retryDelay)
                 withRetrySuspend(handler, task)
             } else {

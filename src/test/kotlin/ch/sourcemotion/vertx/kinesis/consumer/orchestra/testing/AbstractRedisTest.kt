@@ -13,9 +13,9 @@ import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import eu.rekawek.toxiproxy.model.ToxicDirection
 import io.vertx.kotlin.coroutines.await
+import io.vertx.kotlin.redis.client.redisOptionsOf
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
-import io.vertx.redis.client.RedisOptions
 import io.vertx.redis.client.Request
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -53,10 +53,10 @@ abstract class AbstractRedisTest(private val deployShardPersistence: Boolean = t
     private fun getRedisServerPort() = redisProxy.proxyPort
 
     protected val redisHeimdallOptions: RedisHeimdallOptions by lazy {
-        RedisHeimdallOptions(RedisOptions().setConnectionString("redis://${getRedisServerHost()}:${getRedisServerPort()}"))
+        RedisHeimdallOptions(redisOptionsOf("redis://${getRedisServerHost()}:${getRedisServerPort()}"))
     }
 
-    protected val redisClient: Redis by lazy(NONE) { RedisHeimdall.create(vertx, redisHeimdallOptions) }
+    protected val redisClient: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, redisHeimdallOptions) }
 
     protected val shardStatePersistenceService: ShardStatePersistenceServiceAsync by lazy(NONE) {
         ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
