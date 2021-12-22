@@ -2,7 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.DynamicRecordFetcher
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.Fetcher
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching.RecordBatchStreamReader
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.adjacentParentShardIdTyped
@@ -56,7 +56,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     @Volatile
     private var running = false
 
-    private lateinit var fetcher: DynamicRecordFetcher
+    private lateinit var fetcher: Fetcher
     private lateinit var recordBatchReader: RecordBatchStreamReader
 
     override suspend fun start() {
@@ -95,14 +95,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             throw VertxKinesisConsumerOrchestraException("Unable to lookup start position of consumer \"$consumerInfo\"", it)
         }
 
-        fetcher = DynamicRecordFetcher(
-            options.fetcherOptions,
-            startFetchPosition,
-            this,
-            options.clusterName.streamName,
-            shardId,
-            kinesisClient
-        )
+        fetcher = Fetcher.of(vertx, options.fetcherOptions, options.clusterName,
+            startFetchPosition, this, shardId, kinesisClient)
+        fetcher.start()
         recordBatchReader = fetcher.streamReader
 
         runCatching { beginFetching(startFetchPosition) }
@@ -125,7 +120,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private fun beginFetching(startPosition: FetchPosition) {
         var previousPosition: FetchPosition = startPosition
-        fetcher.start()
         running = true
         launch {
             while (running) {
