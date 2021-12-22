@@ -74,7 +74,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
                     msg.ack()
                     checkpoint.flag()
                 }
-            }.completionHandlerAwait()
+            }.completion().await()
 
             eventBus.request<Unit>(
                 EventBusAddr.resharding.notification,

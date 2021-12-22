@@ -14,6 +14,7 @@ import com.nhaarman.mockitokotlin2.*
 import io.kotest.assertions.throwables.shouldThrow
 import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxTestContext
+import kotlinx.coroutines.CoroutineScope
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.*
@@ -53,7 +54,7 @@ internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
             }
         }
 
-        val sut = defaultEnhancedFanOutFetcher()
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
         sut.start()
     }
 
@@ -78,7 +79,7 @@ internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
                 }
             }
 
-            val sut = defaultEnhancedFanOutFetcher()
+            val sut = defaultEnhancedFanOutFetcher(kinesisClient)
             sut.start()
         }
 
@@ -101,7 +102,7 @@ internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
             }
         }
 
-        val sut = defaultEnhancedFanOutFetcher()
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
         sut.start()
     }
 
@@ -113,7 +114,7 @@ internal class EnhancedFanoutFetcherStartTest : AbstractVertxTest() {
             }
         }
 
-        val sut = defaultEnhancedFanOutFetcher()
+        val sut = defaultEnhancedFanOutFetcher(kinesisClient)
         shouldThrow<VertxKinesisConsumerOrchestraException> { sut.start() }
     }
 

@@ -38,7 +38,7 @@ internal abstract class AbstractKinesisAndRedisTest(deployShardPersistence: Bool
             }.await()
 
             // Stream deletion is delayed, so we have to poll but it's faster than to restart the whole localstack
-            var hasStreams: Boolean
+            var streamsExisting: Boolean
             do {
                 delay(1000)
                 streamsExisting =

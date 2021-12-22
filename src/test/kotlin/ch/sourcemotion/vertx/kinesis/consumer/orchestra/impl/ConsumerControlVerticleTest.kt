@@ -258,7 +258,7 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
     private suspend fun sendStartConsumerCmds(shardIds: ShardIdList) {
         shardIds.forEach { shardId ->
             val cmd = StartConsumerCmd(shardId, ShardIteratorStrategy.EXISTING_OR_LATEST)
-            eventBus.requestAwait<Unit>(EventBusAddr.consumerControl.startConsumerCmd, cmd)
+            eventBus.request<Unit>(EventBusAddr.consumerControl.startConsumerCmd, cmd).await()
         }
     }
 

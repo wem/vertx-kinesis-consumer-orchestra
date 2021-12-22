@@ -39,7 +39,7 @@ internal class KCLV1Importer : CoroutineVerticle() {
             }
             credentialsProvider(credentialsProvider)
         }
-        VertxSdkClient.withVertx(builder, context).build()
+        VertxSdkClient.withVertx(builder, vertx.orCreateContext).build()
     }
 
     private fun lookupAwsCredentialsProvider(): AwsCredentialsProvider {

@@ -2,6 +2,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
@@ -9,6 +10,7 @@ import io.kotest.matchers.shouldBe
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import mu.KLogging
 import org.junit.jupiter.api.AfterEach
@@ -37,7 +39,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
 
     @AfterEach
     fun closeOrchestra() = asyncBeforeOrAfter {
-        orchestra?.closeAwait()
+        orchestra?.close()?.await()
     }
 
     @Test
@@ -47,7 +49,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             val fanoutMessage = msg.body()
             repeat(fanoutMessage.recordCount) { checkpoint.flag() }
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-        }.completionHandlerAwait()
+        }.completion().await()
 
         delay(10000)
         kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
@@ -62,7 +64,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             receivedRecords += fanoutMessage.recordCount
             repeat(fanoutMessage.recordCount) { checkpoint.flag() }
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-        }.completionHandlerAwait()
+        }.completion().await()
 
         val streamDescriptionBeforeSplit = createStreamAndDeployVKCO(4, 8)
 
@@ -90,7 +92,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             receivedRecords += fanoutMessage.recordCount
             repeat(fanoutMessage.recordCount) { checkpoint.flag() }
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-        }.completionHandlerAwait()
+        }.completion().await()
 
         val streamDescriptionBeforeMerge = createStreamAndDeployVKCO(4, 4)
 
@@ -131,7 +133,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             fetcherOptions = fetcherOptions(streamDescription)
         )
 
-        orchestra = VertxKinesisOrchestra.create(vertx, orchestraOptions).startAwait()
+        orchestra = VertxKinesisOrchestra.create(vertx, orchestraOptions).start().await()
         return streamDescription
     }
 

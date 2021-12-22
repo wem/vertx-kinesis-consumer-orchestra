@@ -81,7 +81,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     override fun flagShardsInProgress(shardIds: List<String>, expirationMillis: Long, handler: Handler<AsyncResult<Boolean>>) = withRetry(handler) {
         val keys = shardIds.map { redisKeyFactory.createShardProgressFlagKey(it.asShardIdTyped()) }
         keys.map { key ->
-            async { sendAwait(Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)) }
+            async { send(Request.cmd(Command.SET).arg(key).arg("1").arg("PX").arg(expirationMillis)).await() }
         }.awaitAll().all { it?.okResponseAsBoolean().isTrue() }
     }
 
@@ -176,7 +176,7 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         val cmd = Request.cmd(Command.MGET).apply {
             keys.forEach { shardId -> arg(shardId) }
         }
-        val response = redis.sendAwait(cmd)
+        val response = redis.send(cmd).await()
         return if (response != null) {
             toFilter.filterIndexed { index, _ ->
                 response[index]?.toInteger() == expectedIntValue

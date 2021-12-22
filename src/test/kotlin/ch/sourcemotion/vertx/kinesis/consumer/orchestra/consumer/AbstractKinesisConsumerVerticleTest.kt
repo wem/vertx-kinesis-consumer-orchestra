@@ -54,7 +54,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 msg.ack()
                 println("record ${++records}")
                 checkpoint.flag()
-            }.completionHandlerAwait()
+            }.completion().await()
 
             deployTestConsumerVerticle(
                 createKinesisConsumerVerticleConfig(
@@ -287,7 +287,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 }
             }
             msg.ack()
-        }.completionHandlerAwait()
+        }.completion().await()
 
         eventBus.consumer<ReshardingEvent>(EventBusAddr.resharding.notification) { msg ->
             val event = msg.body()
@@ -298,7 +298,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 event.childShardIds.shouldContainExactlyInAnyOrder(firstChild, secondChild)
             }
             checkpoint.flag()
-        }.completionHandlerAwait()
+        }.completion().await()
 
         vertx.setPeriodic(10) {
             defaultTestScope.launch {
@@ -329,7 +329,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 }
             }
             msg.ack()
-        }.completionHandlerAwait()
+        }.completion().await()
 
         eventBus.consumer<ReshardingEvent>(EventBusAddr.resharding.notification) { msg ->
             val event = msg.body()
@@ -343,7 +343,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
                 event.childShardId.shouldBe(childShardId)
             }
             checkpoint.flag()
-        }.completionHandlerAwait()
+        }.completion().await()
 
         vertx.setPeriodic(10) {
             defaultTestScope.launch {

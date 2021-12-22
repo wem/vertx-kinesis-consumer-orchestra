@@ -49,7 +49,7 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
     @AfterEach
     internal fun closeOrchestra() = asyncBeforeOrAfter {
-        orchestra?.closeAwait()
+        orchestra?.close()?.await()
     }
 
     @Test

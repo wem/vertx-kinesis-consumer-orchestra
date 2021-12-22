@@ -9,6 +9,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
@@ -23,7 +24,6 @@ import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import java.time.Duration
-import kotlin.LazyThreadSafetyMode.NONE
 
 /**
  * Verticle that will detect consumable shards. The detection will stopp if the VKCO instance consumes the configured max.
@@ -35,30 +35,12 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
 
     private var initialDetection = true
 
-    private val options by lazy(NONE) { config.mapTo(Options::class.java) }
-    private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, options.redisHeimdallOptions) }
-    private val startCmdDeliveryOptions by lazy(NONE) {
-        deliveryOptionsOf(localOnly = true, sendTimeout = options.startCmdDeliveryTimeoutMillis)
-    }
-
-    private val detectionLock by lazy(NONE) {
-        ConsumerDeploymentLock(
-            redis,
-            LuaExecutor(redis),
-            RedisKeyFactory(options.clusterName),
-            Duration.ofMillis(options.detectionLockExpirationMillis),
-            Duration.ofMillis(options.detectionLockAcquisitionIntervalMillis)
-        )
-    }
-
-    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
-        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(context)
-    }
-
-    private val shardStatePersistence by lazy(NONE) {
-        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
-    }
+    private lateinit var options: Options
+    private lateinit var redis: Redis
+    private lateinit var startCmdDeliveryOptions: DeliveryOptions
+    private lateinit var detectionLock: ConsumerDeploymentLock
+    private lateinit var kinesisClient: KinesisAsyncClient
+    private lateinit var shardStatePersistence : ShardStatePersistenceServiceAsync
 
     private var detectionTimerId: Long? = null
 
@@ -74,6 +56,22 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
     private var detectionInProgress = false
 
     override suspend fun start() {
+        options = config.mapTo(Options::class.java)
+        redis = RedisHeimdall.createLight(vertx, options.redisHeimdallOptions)
+        startCmdDeliveryOptions =
+            deliveryOptionsOf(localOnly = true, sendTimeout = options.startCmdDeliveryTimeoutMillis)
+        detectionLock = ConsumerDeploymentLock(
+            redis,
+            LuaExecutor(redis),
+            RedisKeyFactory(options.clusterName),
+            Duration.ofMillis(options.detectionLockExpirationMillis),
+            Duration.ofMillis(options.detectionLockAcquisitionIntervalMillis)
+        )
+        kinesisClient =
+            SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+                .createKinesisAsyncClient(vertx.orCreateContext)
+        shardStatePersistence = ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
+
         vertx.eventBus().localConsumer(
             EventBusAddr.detection.consumedShardCountNotification, ::onConsumedShardCountNotification
         ).completion().await()
@@ -149,7 +147,9 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
                 val successfulStates = shardIdsToStartConsuming.map { shardIdToStart ->
                     runCatching {
                         vertx.eventBus().request<Unit>(
-                            EventBusAddr.consumerControl.startConsumerCmd, StartConsumerCmd(shardIdToStart, iteratorStrategy), startCmdDeliveryOptions
+                            EventBusAddr.consumerControl.startConsumerCmd,
+                            StartConsumerCmd(shardIdToStart, iteratorStrategy),
+                            startCmdDeliveryOptions
                         ).await()
                         true
                     }.getOrElse {

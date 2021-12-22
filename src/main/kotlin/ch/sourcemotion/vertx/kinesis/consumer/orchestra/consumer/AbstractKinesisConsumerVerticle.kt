@@ -21,7 +21,6 @@ import mu.KLogging
 import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.ChildShard
 import software.amazon.awssdk.services.kinesis.model.Record
-import kotlin.LazyThreadSafetyMode.NONE
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -34,20 +33,10 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private companion object : KLogging()
 
-    private val options: KinesisConsumerVerticleOptions by lazy(NONE) {
-        config.mapTo(KinesisConsumerVerticleOptions::class.java)
-    }
-
-    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
-        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(context)
-    }
-
-    private val shardStatePersistence: ShardStatePersistenceServiceAsync by lazy(NONE) {
-        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
-    }
-
-    protected val shardId: ShardId by lazy(NONE) { options.shardId }
+    private lateinit var options: KinesisConsumerVerticleOptions
+    private lateinit var kinesisClient: KinesisAsyncClient
+    private lateinit var shardStatePersistence: ShardStatePersistenceServiceAsync
+    protected lateinit var shardId: ShardId
 
     /**
      * Running flag, if the verticle is still running. When the verticle  get stopped, this flag must be false.
@@ -60,6 +49,11 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private var inProgressJobId: Long? = null
 
     override suspend fun start() {
+        options = config.mapTo(KinesisConsumerVerticleOptions::class.java)
+        shardId = options.shardId
+        kinesisClient = SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+            .createKinesisAsyncClient(vertx.orCreateContext)
+        shardStatePersistence = ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
         startConsumer()
     }
 

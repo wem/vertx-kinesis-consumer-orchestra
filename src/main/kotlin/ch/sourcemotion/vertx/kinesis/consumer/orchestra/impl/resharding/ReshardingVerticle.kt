@@ -7,6 +7,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.Message
@@ -20,7 +21,6 @@ import software.amazon.awssdk.services.kinesis.KinesisAsyncClient
 import software.amazon.awssdk.services.kinesis.model.SequenceNumberRange
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.time.Duration
-import kotlin.LazyThreadSafetyMode.NONE
 
 internal class ReshardingVerticle : CoroutineVerticle() {
 
@@ -28,18 +28,15 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         private val localOnlyDeliveryOptions = deliveryOptionsOf(localOnly = true)
     }
 
-    private val options by lazy(NONE) { config.mapTo(Options::class.java) }
-
-    private val shardStatePersistence by lazy(NONE) {
-        ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
-    }
-
-    private val kinesisClient: KinesisAsyncClient by lazy(NONE) {
-        SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(context)
-    }
+    private lateinit var options : Options
+    private lateinit var shardStatePersistence : ShardStatePersistenceServiceAsync
+    private lateinit var kinesisClient: KinesisAsyncClient
 
     override suspend fun start() {
+        options = config.mapTo(Options::class.java)
+        shardStatePersistence = ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
+        kinesisClient = SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+            .createKinesisAsyncClient(vertx.orCreateContext)
         vertx.eventBus().localConsumer(EventBusAddr.resharding.notification, this::onReshardingEvent)
             .completion().await()
     }
