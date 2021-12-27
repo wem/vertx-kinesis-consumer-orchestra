@@ -80,20 +80,6 @@ interface ShardStatePersistenceService {
      * Calls [handler] with a list of finished shard ids. By previous calls on [saveFinishedShard])
      */
     fun getFinishedShardIds(shardIds: List<String>, handler: Handler<AsyncResult<List<String>>>)
-
-    /**
-     * Should flag the [parentShardId] of [childShardId] as finished and return amount of finished parent shards.
-     * This can be called multiple times for the same parent.
-     *
-     * As merge parents are consumed from different VKCO instances, the timestamp where each of them would be finished
-     * would be differ. To determine if a child shard could consumed as both parent
-     */
-    fun flagMergeParentReshardingReady(parentShardId: String, childShardId: String, handler: Handler<AsyncResult<Boolean>>)
-
-    /**
-     * Deletes the incrementation state of [flagMergeParentReshardingReady].
-     */
-    fun deleteMergeParentsReshardingReadyFlag(childShardId: String, handler: Handler<AsyncResult<Int>>)
 }
 
 class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersistenceService) :
@@ -129,10 +115,4 @@ class ShardStatePersistenceServiceAsync(private val delegate: ShardStatePersiste
 
     suspend fun getFinishedShardIds(shardIds: List<ShardId>): ShardIdList =
         awaitResult<List<String>> { getFinishedShardIds(shardIds.map { shardId ->  "$shardId" }, it) }.map { it.asShardIdTyped() }
-
-    suspend fun flagMergeParentReadyToReshard(parentShardId: ShardId, childShardId: ShardId) =
-        awaitResult<Boolean> { this.flagMergeParentReshardingReady("$parentShardId", "$childShardId", it) }
-
-    suspend fun deleteMergeParentsReshardingReadyFlag(childShardId: ShardId) =
-        awaitResult<Int> { deleteMergeParentsReshardingReadyFlag(childShardId.id, it) }
 }

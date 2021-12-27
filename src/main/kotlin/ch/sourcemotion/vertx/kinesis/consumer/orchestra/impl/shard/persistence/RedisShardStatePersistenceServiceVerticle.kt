@@ -8,8 +8,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.asShardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isTrue
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoolean
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.RedisKeyFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.DefaultLuaScriptDescription
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.redis.lua.LuaExecutor
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdall
@@ -47,8 +45,6 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
     private var serviceRegistration: MessageConsumer<JsonObject>? = null
 
     private val redis: Redis by lazy(NONE) { RedisHeimdall.createLight(vertx, redisHeimdallOptions) }
-
-    private val luaExecutor by lazy(NONE) { LuaExecutor(redis) }
 
     private var running: Boolean? = null
 
@@ -139,33 +135,6 @@ internal class RedisShardStatePersistenceServiceVerticle : CoroutineVerticle(), 
         withRetry(handler) {
             val shardIdKeys = shardIds.map { redisKeyFactory.createShardFinishedKey(it.asShardIdTyped()) }
             mgetFilter(shardIdKeys, shardIds, 1)
-        }
-
-    override fun flagMergeParentReshardingReady(
-        parentShardId: String,
-        childShardId: String,
-        handler: Handler<AsyncResult<Boolean>>
-    ) = withRetry(handler) {
-        val key = redisKeyFactory.createMergeParentReadyToReshardKey(
-            parentShardId.asShardIdTyped(),
-            childShardId.asShardIdTyped()
-        )
-        val pattern = redisKeyFactory.createMergeParentReadyToReshardKeyWildcard(childShardId.asShardIdTyped())
-        luaExecutor.execute(
-            DefaultLuaScriptDescription.SET_VALUE_RETURN_KEY_COUNT_BY_PATTERN,
-            listOf(key),
-            listOf("1", pattern)
-        )?.toInteger() == 2
-    }
-
-    override fun deleteMergeParentsReshardingReadyFlag(childShardId: String, handler: Handler<AsyncResult<Int>>) =
-        withRetry(handler) {
-            val pattern = redisKeyFactory.createMergeParentReadyToReshardKeyWildcard(childShardId.asShardIdTyped())
-            luaExecutor.execute(
-                DefaultLuaScriptDescription.DELETE_VALUES_BY_KEY_PATTERN_RETURN_DELETED_COUNT,
-                listOf(),
-                listOf(pattern)
-            )?.toInteger() ?: 0
         }
 
     private suspend fun mgetFilter(keys: List<String>, toFilter: List<String>, expectedIntValue: Int) : List<String> {
