@@ -99,7 +99,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle() {
         msg.ack()
     }
 
-    private fun detectNotConsumedShards(handlerId: Long) {
+    private fun detectNotConsumedShards(@Suppress("UNUSED_PARAMETER") handlerId: Long) {
         if (possibleShardCountToStartConsume <= 0 || detectionInProgress) return
         detectionInProgress = true
         launch {
