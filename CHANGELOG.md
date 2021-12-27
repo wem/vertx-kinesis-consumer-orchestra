@@ -78,3 +78,16 @@ Migration to Vert.x 4, Java 11 and bump Java to 11.
 ### Improved
 #### #25 Parameterizable HttpClientOptions for Vert.x AWS SDK
 It's now possible to configure custom Vert.x http client options to access Kinesis. 
+
+## [1.1.0]
+### Maintenance
+Versions bumped. Mainly:
+- Kotlin 1.6.10
+- Vert.x 4.2.3
+- AWS SDK 2.17.101
+### Fixed
+All fixes from Vert.x 3 version applied until and with version 0.0.9.6.
+### Feature
+All features from Vert.x 3 version applied until and with version 0.0.9.6.
+### Improved
+All improvements from Vert.x 3 version applied until and with version 0.0.9.6.
