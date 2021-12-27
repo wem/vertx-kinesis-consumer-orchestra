@@ -6,6 +6,7 @@ import io.vertx.core.Context
 import io.vertx.core.Verticle
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.EventBus
+import io.vertx.core.eventbus.Message
 import io.vertx.core.json.JsonObject
 import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.junit5.Checkpoint
@@ -14,7 +15,9 @@ import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.coroutines.await
 import io.vertx.kotlin.coroutines.dispatcher
+import io.vertx.kotlin.coroutines.receiveChannelHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -148,6 +151,17 @@ abstract class AbstractVertxTest {
             delay(delay)
             controlCheckpoint.flag()
         }
+    }
+
+    /**
+     * @return True if the test (context) has still pending flags on some checkpoints
+     */
+    protected fun VertxTestContext.hasUnsatisfiedCheckpoints() = unsatisfiedCheckpointCallSites().isNotEmpty()
+
+    protected fun <T> eventBusChannelOf(address: String) : ReceiveChannel<Message<T>> {
+        val channel = vertx.receiveChannelHandler<Message<T>>()
+        vertx.eventBus().consumer(address, channel)
+        return channel
     }
 }
 

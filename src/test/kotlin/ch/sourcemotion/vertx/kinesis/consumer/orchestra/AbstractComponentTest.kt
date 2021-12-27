@@ -55,7 +55,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
         kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
     }
 
-    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 240, timeUnit = TimeUnit.SECONDS)
     @Test
     internal fun split_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 12) { checkpoint ->
         var receivedRecords = 0
@@ -68,18 +68,19 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
 
         val streamDescriptionBeforeSplit = createStreamAndDeployVKCO(4, 8)
 
-        delay(20000)
+        delay(40000)
 
         val parentShards = streamDescriptionBeforeSplit.shards()
         kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+        println("CHECK")
 
-        parentShards.forEach { shard ->
-            kinesisClient.splitShardFair(shard)
-            delay(10000) // We have to wait until parent shard get really closed
+        parentShards.forEach { parentShard ->
+            kinesisClient.splitShardFair(parentShard)
+            delay(40000) // We have to wait until parent parentShard get really closed
             val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
-            val childShards = streamDescriptionAfterSplit.shards().filter { it.parentShardId() == shard.shardId() }
-            kinesisClient.putRecordsExplicitHashKey(2 batchesOf RECORD_COUNT, predefinedShards = childShards)
-            logger.info { "Split of shard ${shard.shardId()} done" }
+            val childShards = streamDescriptionAfterSplit.shards().filter { it.parentShardId() == parentShard.shardId() }
+            kinesisClient.putRecordsExplicitHashKey(childShards.size batchesOf RECORD_COUNT, predefinedShards = childShards)
+            logger.info { "Split of parentShard ${parentShard.shardId()} done" }
         }
     }
 
@@ -106,7 +107,7 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             val parent = shards.next()
             val adjacentParent = shards.next()
             kinesisClient.mergeShards(parent, adjacentParent)
-            delay(10000) // We have to wait until parent shard get really closed
+            delay(20000) // We have to wait until parent shard get really closed
             val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
             val childShard = streamDescriptionAfterSplit.shards()
                 .first { it.parentShardId() == parent.shardId() && it.adjacentParentShardId() == adjacentParent.shardId() }

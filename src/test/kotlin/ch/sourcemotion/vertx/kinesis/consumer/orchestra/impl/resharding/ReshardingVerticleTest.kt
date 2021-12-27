@@ -12,11 +12,13 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.util.concurrent.TimeUnit
 
 internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
 
@@ -29,6 +31,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
     /**
      * On merge resharding event, both parent shard must get stopped.
      */
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun stop_consumer_cmd_on_all_merge_resharding_events(testContext: VertxTestContext) =
         testContext.async(2) { checkpoint ->
@@ -58,6 +61,7 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
     /**
      * On split resharding the parent should be stopped and the first child consume command should send immediately.
      */
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun split_resharding(testContext: VertxTestContext) =
         testContext.async(1) { checkpoint ->

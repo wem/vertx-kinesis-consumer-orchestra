@@ -13,6 +13,7 @@ import io.kotest.matchers.date.shouldBeBetween
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.core.eventbus.Message
+import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
@@ -21,6 +22,7 @@ import mu.KLogging
 import org.junit.jupiter.api.Test
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTest() {
 
@@ -166,6 +168,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         shardStatePersistenceService.flagShardNoMoreInProgress(shardId)
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun one_split_child_already_consumed(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val parentShard = kinesisClient.createAndGetStreamDescriptionWhenActive(1).shards().first()
@@ -190,6 +193,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         sendShardsConsumedCountNotification(0)
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun split_children_detected_if_parent_finished(testContext: VertxTestContext) =
         testContext.async(2) { checkpoint ->
@@ -216,6 +220,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             sendShardsConsumedCountNotification(0)
         }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun detect_split_parent_and_later_children(testContext: VertxTestContext) =
         testContext.async(3) { checkpoint ->
@@ -256,6 +261,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             sendShardsConsumedCountNotification(0)
         }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun split_children_not_detected_if_parent_not_finished(testContext: VertxTestContext) =
         testContext.asyncDelayed(1) { checkpoint ->
@@ -277,6 +283,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             sendShardsConsumedCountNotification(0)
         }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun only_merge_parents_detected_if_not_finished(testContext: VertxTestContext) =
         testContext.asyncDelayed(2) { checkpoint ->
@@ -302,6 +309,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             sendShardsConsumedCountNotification(0)
         }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun only_not_finished_merge_parent_detected(testContext: VertxTestContext) =
         testContext.asyncDelayed(1) { checkpoint ->
@@ -326,6 +334,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
             sendShardsConsumedCountNotification(0)
         }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun detect_merge_parents_and_later_child(testContext: VertxTestContext) =
         testContext.async(3) { checkpoint ->
@@ -451,6 +460,7 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
         sendShardsConsumedCountNotification(0)
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun detection_not_stopped_on_consumer_start_failure(testContext: VertxTestContext) =
         testContext.async(10) { checkpoint ->

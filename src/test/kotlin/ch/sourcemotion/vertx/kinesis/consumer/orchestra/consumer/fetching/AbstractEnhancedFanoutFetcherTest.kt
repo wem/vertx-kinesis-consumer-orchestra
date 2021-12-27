@@ -2,6 +2,8 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.fetching
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -10,10 +12,11 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.ResourceNotFoundException
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
+import java.util.concurrent.TimeUnit
 
 internal abstract class AbstractEnhancedFanoutFetcherTest : AbstractKinesisAndRedisTest(false) {
 
-    private lateinit var sut : EnhancedFanoutFetcher
+    private lateinit var sut: EnhancedFanoutFetcher
 
     @AfterEach
     internal fun tearDown() = asyncBeforeOrAfter {
@@ -40,26 +43,28 @@ internal abstract class AbstractEnhancedFanoutFetcherTest : AbstractKinesisAndRe
         kinesisClient.putRecords(2 batchesOf 500)
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun resharding(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
         sut = prepareSut(streamDescription)
         sut.start()
         val streamReader = sut.streamReader
+        var resharded = false
 
         defaultTestScope.launch {
             while (defaultTestScope.isActive) {
                 val batch = streamReader.readFromStream()
                 if (batch.records.isNotEmpty()) { // We split shard after first received record
-
-                    testContext.verify { batch.resharded.shouldBeFalse() }
-                    kinesisClient.splitShardFair(streamDescription.shards().first())
-
-                    while (defaultTestScope.isActive) {
-                        if (streamReader.readFromStream().resharded) {
-                            checkpoint.flag()
-                        }
+                    if (!resharded) {
+                        resharded = true
+                        testContext.verify { batch.resharded.shouldBeFalse() }
+                        kinesisClient.splitShardFair(streamDescription.shards().first())
                     }
+                }
+                if (streamReader.readFromStream().resharded) {
+                    testContext.verify { resharded.shouldBeTrue() }
+                    checkpoint.flag()
                 }
             }
         }
@@ -104,7 +109,7 @@ internal abstract class AbstractEnhancedFanoutFetcherTest : AbstractKinesisAndRe
     }
 
     private suspend fun EnhancedFanoutFetcher.awaitIsFetching() {
-        while (fetching.not()){
+        while (fetching.not()) {
             delay(100)
         }
     }

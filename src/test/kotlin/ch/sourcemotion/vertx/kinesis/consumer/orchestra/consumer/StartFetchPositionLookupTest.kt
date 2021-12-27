@@ -24,7 +24,6 @@ import java.util.function.Consumer
 
 internal class StartFetchPositionLookupTest : AbstractVertxTest() {
     private companion object {
-        const val TEST_STREAM_NAME = "test-stream"
         const val CONSUMER_INFO = "test-consumer-info"
         val shardId = ShardIdGenerator.generateShardId()
     }

@@ -24,21 +24,37 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import io.vertx.core.Vertx
 import io.vertx.core.eventbus.DeliveryOptions
 import io.vertx.core.eventbus.ReplyException
+import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.core.SdkBytes
 import software.amazon.awssdk.services.kinesis.model.Record
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.time.Duration
+import java.util.concurrent.TimeUnit
 
 internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAndRedisTest() {
+
+    private var deploymentId: String? = null
+
     @BeforeEach
     internal fun setUpRecordMessageCodec() {
         eventBus.registerDefaultCodec(Record::class.java, LocalCodec("record-test-codec"))
+    }
+
+    /**
+     * We undeploy to avoid misleading exceptions because of trailing verticle operations.
+     */
+    @AfterEach
+    internal fun tearDown() = asyncBeforeOrAfter {
+        if (deploymentId != null) {
+            runCatching { vertx.undeploy(deploymentId).await() }
+        }
     }
 
     @Test
@@ -48,11 +64,8 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         testContext.async(recordBatching.recordCount) { checkpoint ->
             val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
-            var records = 0
-
             vertx.eventBus().consumer<Record>(TestConsumerVerticle.RECORD_SEND_ADDR) { msg ->
                 msg.ack()
-                println("record ${++records}")
                 checkpoint.flag()
             }.completion().await()
 
@@ -234,43 +247,44 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
     internal fun consumer_retry_from_failed_configured_but_wrong_exception(
         vertx: Vertx,
         testContext: VertxTestContext
-    ) {
+    ) = testContext.async {
         val recordBatching = 1 batchesOf 10
+        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
 
-        testContext.async(recordBatching.recordCount) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
+        val channel = eventBusChannelOf<Record>(TestConsumerVerticle.RECORD_SEND_ADDR)
 
-            var recordSequenceNumber: String? = null
-
-            vertx.eventBus().consumer<Record>(TestConsumerVerticle.RECORD_SEND_ADDR) { msg ->
-                // Every time the same / first record is excepted
-                val record = msg.body()
-                if (recordSequenceNumber.isNotNullOrBlank()) {
-                    testContext.verify { recordSequenceNumber.shouldBe(record.sequenceNumber()) }
-                } else {
-                    recordSequenceNumber = record.sequenceNumber()
-                }
-
-                // Each record processing will fail, but
-                msg.fail(0, "Test failure")
-
-                checkpoint.flag()
-            }.completion().await()
-
-            deployTestConsumerVerticle(
-                createKinesisConsumerVerticleConfig(
-                    streamDescription,
-                    streamDescription.getFirstShardId(),
-                    errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
-                )
+        deployTestConsumerVerticle(
+            createKinesisConsumerVerticleConfig(
+                streamDescription,
+                streamDescription.getFirstShardId(),
+                errorHandling = ErrorHandling.RETRY_FROM_FAILED_RECORD,
             )
+        )
 
-            delay(10000)
+        delay(10000)
 
-            kinesisClient.putRecords(recordBatching)
+        kinesisClient.putRecords(recordBatching)
+
+        var recordSequenceNumber: String? = null
+        repeat(100) {
+            val msg = channel.receive()
+
+            // Every time the same / first record is excepted
+            val record = msg.body()
+            if (recordSequenceNumber.isNotNullOrBlank()) {
+                testContext.verify { recordSequenceNumber.shouldBe(record.sequenceNumber()) }
+            } else {
+                recordSequenceNumber = record.sequenceNumber()
+            }
+
+            // Each record processing will fail, but
+            msg.fail(0, "Test failure")
+            println("Check")
         }
+
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun split_resharding(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
         val (parentShardId, firstChild, secondChild) = ShardIdGenerator.reshardingIdConstellation()
@@ -301,12 +315,15 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         }.completion().await()
 
         vertx.setPeriodic(10) {
-            defaultTestScope.launch {
-                kinesisClient.putRecords(1 batchesOf 1)
+            if (testContext.hasUnsatisfiedCheckpoints()) {
+                defaultTestScope.launch {
+                    kinesisClient.putRecords(1 batchesOf 1)
+                }
             }
         }
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun merge_resharding(testContext: VertxTestContext) = testContext.async(2) { checkpoint ->
         val (parentShardId, adjacentParentShardId, childShardId) = ShardIdGenerator.reshardingIdConstellation()
@@ -346,17 +363,21 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         }.completion().await()
 
         vertx.setPeriodic(10) {
-            defaultTestScope.launch {
-                kinesisClient.putRecordsExplicitHashKey(2 batchesOf 1, predefinedShards = streamDescription.shards())
+            if (testContext.hasUnsatisfiedCheckpoints()) {
+                defaultTestScope.launch {
+                    kinesisClient.putRecordsExplicitHashKey(
+                        2 batchesOf 1,
+                        predefinedShards = streamDescription.shards()
+                    )
+                }
             }
         }
     }
 
     /**
-     * TODO: Localstack currently only supports LATEST shard iterator on enhanced fan out https://github.com/localstack/localstack/issues/3823. Therefore we actual can just test against LATEST shard iterator
-     *
      * Simulates the restart of a consumer to test interaction with iterator persistence etc.
      */
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun consumer_restart(testContext: VertxTestContext) {
         val recordBatching = 1 batchesOf 10
@@ -382,6 +403,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
             }
 
             val receivedRecordIndices = mutableListOf<Int>()
+            var restarted = false
 
             vertx.eventBus().consumer<Record>(TestConsumerVerticle.RECORD_SEND_ADDR) { msg ->
                 val recordIdx = msg.body().data().asUtf8String().toInt()
@@ -392,27 +414,17 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
 
                 msg.ack()
                 if (receivedRecordIndices.size == recordCount) {
-                    logger.info { "Received first bunch of records. Restart consumer" }
                     defaultTestScope.launch {
                         testContext.verify { consumerDeploymentId.shouldNotBeNull() }
-                        vertx.undeploy(consumerDeploymentId!!).await()
 
-                        // https://github.com/localstack/localstack/issues/3823
-                        shardStatePersistenceService.deleteShardSequenceNumber(streamDescription.getFirstShardId())
-
-                        consumerRoundStarter()
-
-                        delay(1000)
-                        kinesisClient.putRecords(recordBatching, recordDataSupplier = { generateRecordData() })
-                    }
-                }
-                // Verification of the second run / deployment of the consumer verticle.
-                // So we test iterator persistence works as expected
-                if (receivedRecordIndices.size == recordCount * 2) {
-                    testContext.verify {
-                        repeat(recordCount) { idx ->
-                            val expectedIdx = idx + recordCount
-                            receivedRecordIndices.shouldContain(expectedIdx)
+                        if (!restarted) { // Restart just once
+                            logger.info { "Restart consumer" }
+                            restarted = true
+                            putRecordIdx = 0
+                            receivedRecordIndices.clear()
+                            vertx.undeploy(consumerDeploymentId!!).await()
+                            consumerRoundStarter()
+                            kinesisClient.putRecords(recordBatching, recordDataSupplier = { generateRecordData() })
                         }
                     }
                 }
@@ -420,8 +432,6 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
             }.completion().await()
 
             consumerRoundStarter()
-
-            delay(1000)
             kinesisClient.putRecords(recordBatching, recordDataSupplier = { generateRecordData() })
         }
     }
@@ -431,7 +441,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
         val shardProgressExpirationMillis = 100L
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
         val shardId = streamDescription.getFirstShardId()
-        val deploymentId = deployTestConsumerVerticle(
+        deploymentId = deployTestConsumerVerticle(
             createKinesisConsumerVerticleConfig(
                 streamDescription,
                 shardId,
@@ -450,7 +460,7 @@ internal abstract class AbstractKinesisConsumerVerticleTest : AbstractKinesisAnd
     private suspend fun deployTestConsumerVerticle(
         options: KinesisConsumerVerticleOptions,
         instances: Int = 1
-    ) = deployTestVerticle<TestConsumerVerticle>(options, instances)
+    ) = deployTestVerticle<TestConsumerVerticle>(options, instances).also { deploymentId = it }
 
     private fun createKinesisConsumerVerticleConfig(
         streamDescription: StreamDescription,
