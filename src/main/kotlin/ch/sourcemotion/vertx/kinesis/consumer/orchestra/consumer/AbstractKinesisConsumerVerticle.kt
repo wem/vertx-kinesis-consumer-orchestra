@@ -15,6 +15,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenc
 import io.vertx.core.AsyncResult
 import io.vertx.core.Handler
 import io.vertx.kotlin.coroutines.CoroutineVerticle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import mu.KLogging
@@ -41,8 +42,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     /**
      * Running flag, if the verticle is still running. When the verticle  get stopped, this flag must be false.
      */
-    private var fetching = false
-    private var inProgress = false
+    private var running = false
 
     private lateinit var fetcher: Fetcher
     private lateinit var recordBatchReader: RecordBatchStreamReader
@@ -51,15 +51,19 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     override suspend fun start() {
         options = config.mapTo(KinesisConsumerVerticleOptions::class.java)
         shardId = options.shardId
-        kinesisClient = SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(vertx.orCreateContext)
+        kinesisClient =
+            SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+                .createKinesisAsyncClient(vertx.orCreateContext)
         shardStatePersistence = ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
-        startConsumer()
+        runCatching { startConsumer() }
+            .onFailure {
+                running = false
+                throw it
+            }
     }
 
     override suspend fun stop() {
-        fetching = false
-        inProgress = false
+        running = false
         logger.info { "Stopping Kinesis consumer verticle on $consumerInfo" }
         runCatching { fetcher.stop() }
         runCatching { inProgressJobId?.let { vertx.cancelTimer(it) } }
@@ -75,7 +79,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun startConsumer() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
-        inProgress = true
         shardStatePersistence.flagShardInProgress(options.shardId)
         startShardInProgressKeepAlive()
 
@@ -115,7 +118,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
 
     private fun startShardInProgressKeepAlive() {
         inProgressJobId = vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
-            if (inProgress) {
+            if (running) {
                 launch {
                     shardStatePersistence.flagShardInProgress(options.shardId)
                 }
@@ -124,16 +127,20 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     }
 
     private fun beginFetching() {
-        fetching = true
+        running = true
         launch {
-            while (fetching) {
-                runCatching {
-                    recordBatchReader.readFromStream()
-                }.onSuccess { recordBatch ->
+            while (running) {
+                try {
+                    val recordBatch = recordBatchReader.readFromStream()
                     val records = recordBatch.records
                     tryDeliverRecords(records, recordBatch)
-                }.onFailure { throwable ->
-                    logger.warn(throwable) { "Failure during fetching records on $consumerInfo ... but will continue" }
+                } catch (e: CancellationException) {
+                    if (running) {
+                        logger.warn(e) { "Fetcher was canceled exceptionally. Will restart" }
+                        beginFetching()
+                    }
+                } catch (e: Exception) {
+                    logger.warn(e) { "Failure during fetching records on $consumerInfo ... but will continue" }
                 }
             }
             logger.info { "$consumerInfo is no more consuming" }
@@ -163,7 +170,9 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             if (lastSuccessful != null) {
                 saveDeliveredSequenceNbr(lastSuccessful.sequenceNumber().asSequenceNumberAfter())
             }
-            tryDeliverRecords(recordsToRetry, recordBatch)
+            if (running) {
+                tryDeliverRecords(recordsToRetry, recordBatch)
+            }
         } else {
             records.lastOrNull()?.let {
                 saveDeliveredSequenceNbr(it.sequenceNumber().asSequenceNumberAfter())
@@ -185,22 +194,26 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         records: List<Record>
     ): List<Record> {
         return if (shouldRetryFromFailedRecord(throwable)) {
-            if (throwable is KinesisConsumerException) {
-                val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
-                logger.debug {
-                    "Record processing did fail on \"$consumerInfo\". All information available to retry" +
-                            "from failed record."
+            when (throwable) {
+                is KinesisConsumerException -> {
+                    val failedSequence = throwable.failedRecord.sequenceNumber.asSequenceNumberAt()
+                    logger.debug {
+                        "Record processing did fail on \"$consumerInfo\". All information available to retry" +
+                                "from failed record."
+                    }
+                    val failedRecordIdx = records.indexOfFirst { it.sequenceNumber() == failedSequence.number }
+                    return records.toList().subList(failedRecordIdx, records.size)
                 }
-                val failedRecordIdx = records.indexOfFirst { it.sequenceNumber() == failedSequence.number }
-                return records.toList().subList(failedRecordIdx, records.size)
-            } else { // Retry from last successful shard iterator
-                logger.warn(throwable) {
-                    "Kinesis consumer configured to retry from failed record, but no record " +
-                            "information available as wrong exception type \"${throwable::class.java.name}\" was thrown. " +
-                            "To retry consume, beginning from failed record you must throw an exception of type " +
-                            "\"${KinesisConsumerException::class.java.name}\", so we retry from latest successful fetch position"
+                is CancellationException -> emptyList()
+                else -> { // Retry from last successful shard iterator
+                    logger.warn(throwable) {
+                        "Kinesis consumer configured to retry from failed record, but no record " +
+                                "information available as wrong exception type \"${throwable::class.java.name}\" was thrown. " +
+                                "To retry consume, beginning from failed record you must throw an exception of type " +
+                                "\"${KinesisConsumerException::class.java.name}\", so we retry from latest successful fetch position"
+                    }
+                    records
                 }
-                records
             }
         } else emptyList() // Fallback: Ignore and continue
     }
@@ -215,7 +228,7 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
             "Streaming on $consumerInfo ended because shard iterator did reach its end. Resharding did happen. " +
                     "Consumer(s) will be started recently according new shard setup."
         }
-        fetching = false
+        running = false
         runCatching { fetcher.stop() }
         runCatching { ReshardingEvent.create(shardId, childShards.map { it.shardIdTyped() }) }
             .onSuccess { vertx.eventBus().send(EventBusAddr.resharding.notification, it) }
