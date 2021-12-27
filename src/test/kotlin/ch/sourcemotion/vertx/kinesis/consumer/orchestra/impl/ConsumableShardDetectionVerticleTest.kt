@@ -1,8 +1,7 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cmd.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
