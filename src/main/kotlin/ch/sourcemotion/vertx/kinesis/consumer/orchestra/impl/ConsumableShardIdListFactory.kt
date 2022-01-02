@@ -21,8 +21,7 @@ internal object ConsumableShardIdListFactory {
          * The list of finished shards are used to exclude the available child shards their
          * parents are not finished yet.
          */
-        finishedShardIds: ShardIdList,
-        maxShardCount: Int,
+        finishedShardIds: ShardIdList
     ): ShardIdList {
         val existingShardIdList = existingShards.map { it.shardIdTyped() }
         val availableShardIds = availableShards.map { shard -> shard.shardIdTyped() }
@@ -52,7 +51,8 @@ internal object ConsumableShardIdListFactory {
             pendingShards.filterNot { finishedShardIds.contains(it.shardIdTyped()) }.map { it.shardIdTyped() }
         )
 
-        return shardIdsToConsume.distinct().adjustList(maxShardCount)
+        return shardIdsToConsume.distinct()
+
     }
 
     private fun getNotFinishedParentsByChildren(
@@ -83,6 +83,4 @@ internal object ConsumableShardIdListFactory {
                 .all { existingParentShardId -> finishedShardIds.contains(existingParentShardId) || availableShardIds.contains(existingParentShardId) }.not()
         }
     }
-
-    private fun ShardIdList.adjustList(maxShardCount: Int): ShardIdList = take(maxShardCount)
 }

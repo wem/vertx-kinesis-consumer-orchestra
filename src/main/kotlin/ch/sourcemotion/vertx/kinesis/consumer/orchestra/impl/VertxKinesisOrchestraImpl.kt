@@ -115,14 +115,7 @@ internal class VertxKinesisOrchestraImpl(
 
     private suspend fun deployConsumableShardDetectorVerticle() {
         val options = ConsumableShardDetectionVerticle.Options(
-            OrchestraClusterName(options.applicationName, options.streamName),
-            options.loadConfiguration.maxShardsCount,
-            options.loadConfiguration.notConsumedShardDetectionInterval,
-            options.detectionLockExpiration.toMillis(),
-            options.detectionLockAcquisitionInterval.toMillis(),
-            options.consumerDeploymentTimeout.toMillis(),
-            options.shardIteratorStrategy,
-            options.redisOptions
+            OrchestraClusterName(options.applicationName, options.streamName)
         )
         subsystemDeploymentIds.add(deployVerticle<ConsumableShardDetectionVerticle>(options))
     }

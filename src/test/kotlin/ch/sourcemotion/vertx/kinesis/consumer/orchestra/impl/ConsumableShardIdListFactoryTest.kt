@@ -11,45 +11,37 @@ import software.amazon.awssdk.services.kinesis.model.Shard
 
 internal class ConsumableShardIdListFactoryTest {
 
-    private companion object {
-        const val MAX_MAX_SHARD_COUNT = Int.MAX_VALUE
-    }
-
     private val sut = ConsumableShardIdListFactory
 
     @Test
     internal fun no_shard_finished() {
-        val availableIds = ShardIdGenerator.generateShardIdList(10)
+        val allAndAvailableShards = ShardIdGenerator.generateShardIdList(10)
         sut.create(
-            availableIds.map { shardOf(it) },
-            availableIds.map { shardOf(it) },
-            emptyList(),
-            MAX_MAX_SHARD_COUNT
-        ).shouldContainExactly(availableIds)
+            allAndAvailableShards.map { shardOf(it) },
+            allAndAvailableShards.map { shardOf(it) },
+            emptyList()
+        ).shouldContainExactly(allAndAvailableShards)
     }
 
     @Test
     internal fun exact_no_shard_finished() {
-        val maxShardCount = 2
-        val availableIds = ShardIdGenerator.generateShardIdList(10)
+        val allAndAvailableShards = ShardIdGenerator.generateShardIdList(10)
         sut.create(
-            availableIds.map { shardOf(it) },
-            availableIds.map { shardOf(it) },
-            emptyList(),
-            maxShardCount
-        ).shouldContainExactly(availableIds.take(maxShardCount))
+            allAndAvailableShards.map { shardOf(it) },
+            allAndAvailableShards.map { shardOf(it) },
+            emptyList()
+        ).shouldContainExactly(allAndAvailableShards)
     }
 
     @Test
     internal fun one_shard_finished() {
         val allShardIds = ShardIdGenerator.generateShardIdList(10)
         val finishedShardId = allShardIds.last()
-        val availableShardIds = allShardIds.filter { finishedShardId != it }
+        val availableShardIds = allShardIds.filterNot { finishedShardId == it }
         sut.create(
+            allShardIds.map { shardOf(it) },
             availableShardIds.map { shardOf(it) },
-            availableShardIds.map { shardOf(it) },
-            listOf(finishedShardId),
-            MAX_MAX_SHARD_COUNT
+            listOf(finishedShardId)
         ).shouldContainExactly(availableShardIds)
     }
 
@@ -61,8 +53,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
-            emptyList(),
-            MAX_MAX_SHARD_COUNT
+            emptyList()
         ).shouldContainExactlyInAnyOrder(
             mergeParent.shardIdTyped(),
             mergeAdjacentParent.shardIdTyped(),
@@ -78,8 +69,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeParent, mergeChild),
-            listOf(mergeAdjacentParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(mergeAdjacentParent.shardIdTyped())
         ).shouldContainExactlyInAnyOrder(mergeParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
@@ -91,8 +81,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeAdjacentParent, mergeChild),
-            listOf(mergeParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(mergeParent.shardIdTyped())
         ).shouldContainExactlyInAnyOrder(mergeAdjacentParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
@@ -104,8 +93,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(notFinished, mergeChild, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeChild),
-            listOf(mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped())
         ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped(), mergeChild.shardIdTyped())
     }
 
@@ -117,8 +105,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(finished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
-            listOf(finished.shardIdTyped(), mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(finished.shardIdTyped(), mergeParent.shardIdTyped(), mergeAdjacentParent.shardIdTyped())
         ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
@@ -130,8 +117,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(notFinished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(notFinished, mergeChild),
-            emptyList(),
-            MAX_MAX_SHARD_COUNT
+            emptyList()
         ).shouldContainExactly(notFinished.shardIdTyped())
     }
 
@@ -143,8 +129,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(finished, mergeParent, mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
-            listOf(finished.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(finished.shardIdTyped())
         ).shouldBeEmpty()
     }
 
@@ -155,8 +140,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(mergeParent, mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
-            listOf(mergeAdjacentParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(mergeAdjacentParent.shardIdTyped())
         ).shouldBeEmpty()
     }
 
@@ -167,8 +151,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(mergeChild),
             listOf(mergeChild),
-            emptyList(),
-            MAX_MAX_SHARD_COUNT
+            emptyList()
         ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
@@ -179,8 +162,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(mergeChild),
             listOf(mergeChild),
-            emptyList(),
-            MAX_MAX_SHARD_COUNT
+            emptyList()
         ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
@@ -191,8 +173,7 @@ internal class ConsumableShardIdListFactoryTest {
         sut.create(
             listOf(mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
-            listOf(mergeAdjacentParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
+            listOf(mergeAdjacentParent.shardIdTyped())
         ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
@@ -204,7 +185,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(mergeChild),
             listOf(mergeChild),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactly(mergeChild.shardIdTyped())
     }
 
@@ -216,7 +196,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(mergeAdjacentParent, mergeChild),
             listOf(mergeChild),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldBeEmpty()
     }
 
@@ -228,7 +207,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(mergeParent, mergeChild),
             listOf(mergeChild),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldBeEmpty()
     }
 
@@ -241,7 +219,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(notFinished, splitChildLeft, splitChildRight),
             listOf(splitParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(
             notFinished.shardIdTyped(), splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped()
         )
@@ -256,7 +233,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(splitParent.shardIdTyped(), notFinished.shardIdTyped())
     }
 
@@ -269,7 +245,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(finished, splitParent, splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped(), splitParent.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped())
     }
 
@@ -282,7 +257,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(notFinished, splitParent, splitChildLeft, splitChildRight),
             listOf(notFinished, splitChildLeft, splitChildRight),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(notFinished.shardIdTyped())
     }
 
@@ -295,7 +269,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(finished, splitParent, splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             listOf(finished.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
         ).shouldBeEmpty()
     }
 
@@ -307,7 +280,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(splitParent, splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldBeEmpty()
     }
 
@@ -319,7 +291,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(splitChildLeft, splitChildRight),
             listOf(splitChildLeft, splitChildRight),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactlyInAnyOrder(splitChildLeft.shardIdTyped(), splitChildRight.shardIdTyped())
     }
 
@@ -331,7 +302,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(splitChildRight),
             listOf(splitChildRight),
             emptyList(),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactly(splitChildRight.shardIdTyped())
     }
 
@@ -344,7 +314,6 @@ internal class ConsumableShardIdListFactoryTest {
             listOf(finished, notFinished),
             listOf(notFinished),
             listOf(finished.shardIdTyped()),
-            MAX_MAX_SHARD_COUNT
         ).shouldContainExactly(notFinished.shardIdTyped())
     }
 
