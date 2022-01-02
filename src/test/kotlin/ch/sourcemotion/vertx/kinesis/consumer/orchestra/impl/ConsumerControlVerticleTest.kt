@@ -1,360 +1,283 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadConfiguration
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.RecordDataForwardKinesisConsumerTestVerticle.Companion.RECORDS_RECEIVED_ACK_ADDR
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
-import io.kotest.assertions.throwables.shouldThrow
-import io.kotest.matchers.ints.shouldBeBetween
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_APPLICATION_NAME
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_STREAM_NAME
+import io.kotest.matchers.collections.shouldContainExactly
+import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.kotest.matchers.ints.shouldBeZero
+import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
-import io.vertx.core.Handler
+import io.vertx.core.AbstractVerticle
 import io.vertx.core.Verticle
-import io.vertx.core.eventbus.Message
-import io.vertx.core.eventbus.ReplyException
-import io.vertx.core.json.JsonArray
 import io.vertx.core.json.JsonObject
-import io.vertx.junit5.Checkpoint
 import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
-import kotlinx.coroutines.launch
-import mu.KLogging
+import kotlinx.coroutines.delay
 import org.junit.jupiter.api.Test
-import software.amazon.awssdk.core.SdkBytes
-import software.amazon.awssdk.services.kinesis.model.Record
+import java.time.Duration
 
-internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
+internal class ConsumerControlVerticleTest : AbstractRedisTest() {
 
-    companion object : KLogging() {
-        const val DATA_STRING = "record-data"
+    companion object {
+        const val START_ACK_ADDR = "/consumer-control/test/start"
+        const val STOP_ACK_ADDR = "/consumer-control/test/stop"
     }
 
     @Test
-    internal fun start_one_consumer(testContext: VertxTestContext) {
-        val recordBunching = 10 batchesOf 100
-        val recordData = SdkBytes.fromUtf8String(DATA_STRING)
-
-        testContext.async(recordBunching.recordCount + 2) { checkpoint ->
-
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(1)
-
-            eventBus.consumer<JsonArray>(RECORDS_RECEIVED_ACK_ADDR) {
-                testContext.verify {
-                    val recordsData = it.body()
-                    recordsData.forEach { data ->
-                        data.shouldBe(DATA_STRING)
-                        checkpoint.flag()
-                    }
-                }
-            }
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                    .addVerifier(2, 1)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumerCmds(streamDescription.shardIds())
-
-            kinesisClient.putRecords(recordBunching, recordDataSupplier = { recordData })
-        }
+    internal fun start_one_consumer(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val startEventChannel = eventBusChannelOf<Unit>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds(1)).await().shouldBe(1)
+        startEventChannel.receive()
     }
 
     @Test
-    internal fun start_four_consumers(testContext: VertxTestContext) {
-        val recordBatches = 4 batchesOf 250
-
-        asyncTest(testContext, recordBatches.recordCount + 3) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(recordBatches.recordBatches)
-
-            val consumedRecordNumbers = ArrayList<Int>()
-            eventBus.consumer<JsonArray>(RECORDS_RECEIVED_ACK_ADDR) {
-                testContext.verify {
-                    val recordsData = it.body()
-                    recordsData.forEach { data ->
-                        val recordNumber = data.toString().substringAfter("_").toInt()
-                        testContext.verify {
-                            recordNumber.shouldBeBetween(0, recordBatches.recordsPerBatch - 1)
-                            consumedRecordNumbers.add(recordNumber)
-                            checkpoint.flag()
-                        }
-                    }
-                    // Verify all records on each shard got consumed
-                    if (consumedRecordNumbers.size == recordBatches.recordCount) {
-                        testContext.verify {
-                            repeat(recordBatches.recordsPerBatch) { recordNumber ->
-                                consumedRecordNumbers.filter { it == recordNumber }.size.shouldBe(recordBatches.recordBatches)
-                            }
-                            checkpoint.flag()
-                        }
-                    }
-                }
-            }
-
-            val activeConsumerCountVerifier = ConsumedShardCountVerifier
-                .withStartNotificationVerifier(testContext, checkpoint)
-                .addSequentialVerifier(2)
-                .addSequentialVerifier(3)
-                .addSequentialVerifier(4)
-                .addSequentialVerifier(5)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumerCmds(streamDescription.shardIds())
-
-            // We put the records with explicit hash key instead of partition key to ensure fair distribution between shards
-            kinesisClient.putRecordsExplicitHashKey(recordBatches, { SdkBytes.fromUtf8String("${DATA_STRING}_$it") })
-        }
+    internal fun start_consumer_same_shard_two_times(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardIds = shardIds(1)
+        val startEventChannel = eventBusChannelOf<Unit>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBe(1)
+        startEventChannel.receive()
+        // Second start should be ignored
+        consumerControl.startConsumers(shardIds).await().shouldBe(1)
+        delay(1000)
+        startEventChannel.tryReceive().getOrNull().shouldBeNull()
     }
 
     @Test
-    internal fun start_consumers(testContext: VertxTestContext) = testContext.async(2) { checkpoint ->
-        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
-
-        val activeConsumerCountVerifier =
-            ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                .addSequentialVerifier(2)
-                .addSequentialVerifier(3)
-
-        eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-        deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-        streamDescription.shardIds().forEach { sendStartConsumerCmds(listOf(it)) }
-    }
-
-    @Test
-    internal fun stop_consumers(testContext: VertxTestContext) = testContext.asyncDelayed(5) { checkpoint ->
-        val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
-
-        val activeConsumerCountVerifier = ConsumedShardCountVerifier
-            .withStartNotificationVerifier(testContext, checkpoint)
-            .addSequentialVerifier(2)
-            .addVerifier(3) { msg ->
-                verify { msg.body().shouldBe(2) }
-                defaultTestScope.launch { streamDescription.shardIds().forEach { stopConsumer(it) } }
-                checkpoint.flag()
-            }
-            .addVerifier(4, 1)
-            .addVerifier(5, 0)
-
-        eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-        deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-        sendStartConsumerCmds(streamDescription.shardIds())
-    }
-
-    @Test
-    internal fun start_empty_consumer_list_will_reply_direct(testContext: VertxTestContext) =
-        testContext.asyncDelayed(1) { checkpoint ->
-            kinesisClient.createAndGetStreamDescriptionWhenActive()
-
-            eventBus.consumer(
-                EventBusAddr.detection.consumedShardCountNotification,
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-            )
-
-            deployConsumerControl(LoadConfiguration.createConsumeAllShards())
-            sendStartConsumerCmds(emptyList())
-        }
-
-    @Test
-    internal fun try_start_more_consumer_than_capacity(testContext: VertxTestContext) =
-        testContext.async(1) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(4)
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                    .addSequentialVerifier(2)
-                    .addVerifier(3, 2)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumerCmds(streamDescription.shardIds())
-        }
-
-    @Test
-    internal fun try_start_consumers_already_consumed_shard(testContext: VertxTestContext) =
-        testContext.async(1) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint).addVerifier(2, 1)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            shardStatePersistenceService.flagShardInProgress(streamDescription.shardIds().first())
-
-            deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumerCmds(streamDescription.shardIds())
-        }
-
-    @Test
-    internal fun try_start_consumers_already_finished_shard(testContext: VertxTestContext) =
-        testContext.async(1) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint).addVerifier(2, 1)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            shardStatePersistenceService.saveFinishedShard(streamDescription.shardIds().first(), 10000)
-
-            deployConsumerControl(LoadConfiguration.createConsumeExact(2))
-            sendStartConsumerCmds(streamDescription.shardIds())
-        }
-
-    @Test
-    internal fun try_start_consumers_already_finished_and_consumed_shards(testContext: VertxTestContext) =
-        testContext.async(1) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(3)
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint).addVerifier(2, 1)
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            shardStatePersistenceService.flagShardInProgress(streamDescription.shardIds()[0])
-            shardStatePersistenceService.saveFinishedShard(streamDescription.shardIds()[1], 10000)
-
-            deployConsumerControl(LoadConfiguration.createConsumeExact(3))
-            sendStartConsumerCmds(streamDescription.shardIds())
-        }
-
-    @Test
-    internal fun try_start_consumers_with_zero_capacity(testContext: VertxTestContext) =
-        testContext.async(1) { checkpoint ->
-            val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(2)
-
-            val activeConsumerCountVerifier =
-                ConsumedShardCountVerifier.withStartNotificationVerifier(testContext, checkpoint)
-                    .addVerifier(2) { msg ->
-                        verify {
-                            msg.body().shouldBe(1)
-                        }
-                        // Start a consumer that exceed capacity, and no left shards
-                        defaultTestScope.launch {
-                            shouldThrow<ReplyException> {
-                                sendStartConsumerCmds(
-                                    streamDescription.shardIds().takeLast(1)
-                                )
-                            }
-                            checkpoint.flag()
-                        }
-                    }
-
-            eventBus.consumer(EventBusAddr.detection.consumedShardCountNotification, activeConsumerCountVerifier)
-
-            deployConsumerControl(LoadConfiguration.createConsumeExact(1))
-            sendStartConsumerCmds(streamDescription.shardIds().take(1))
-        }
-
-    private suspend fun sendStartConsumerCmds(shardIds: ShardIdList) {
+    internal fun start_ten_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBe(shardIds.size)
         shardIds.forEach { shardId ->
-            val cmd = StartConsumerCmd(shardId, ShardIteratorStrategy.EXISTING_OR_LATEST)
-            eventBus.request<Unit>(EventBusAddr.consumerControl.startConsumerCmd, cmd).await()
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(
+                shardId
+            )
         }
     }
 
-    private suspend fun stopConsumer(shardId: ShardId) {
-        val cmd = StopConsumerCmd(shardId)
-        eventBus.request<Unit>(EventBusAddr.consumerControl.stopConsumerCmd, cmd).await()
+    @Test
+    internal fun start_ten_consumers_than_stop_each(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        val stopEventChannel = eventBusChannelOf<JsonObject>(STOP_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBe(shardIds.size)
+        shardIds.forEach { shardId ->
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java)
+                .shardId.shouldBe(shardId)
+        }
+
+        shardIds.forEachIndexed { idx, shardId ->
+            val stopConsumersCmdResult = consumerControl.stopConsumers(1).await()
+            stopConsumersCmdResult.activeConsumers.shouldBe(shardIds.size - (idx + 1))
+            stopConsumersCmdResult.stoppedShardIds.shouldContainExactly(shardId)
+
+            stopEventChannel.receive().body()
+                .mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(shardId)
+        }
     }
 
-    private suspend fun deployConsumerControl(
-        loadConfiguration: LoadConfiguration,
-        verticleOptions: JsonObject = JsonObject()
-    ): ConsumerControlVerticle.Options {
-        val options =
-            consumerControlOptionsOf(
-                RecordDataForwardKinesisConsumerTestVerticle::class.java,
-                loadConfiguration,
-                verticleOptions
-            )
-        return deployConsumerControl(options)
+    @Test
+    internal fun stop_not_started_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val startedShardId = ShardId("1")
+        val notStartedShardId = ShardId("2")
+
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        val stopEventChannel = eventBusChannelOf<JsonObject>(STOP_ACK_ADDR)
+
+        consumerControl.startConsumers(listOf(startedShardId)).await().shouldBe(1)
+        startEventChannel.receive()
+
+        // Try to stop consumer of a shard for that never a consumer was started
+        consumerControl.stopConsumer(notStartedShardId)
+        delay(1000)
+        stopEventChannel.tryReceive().getOrNull().shouldBeNull()
     }
+
+    @Test
+    internal fun start_stop_start_consumer(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardId = ShardId("1")
+
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        val stopEventChannel = eventBusChannelOf<JsonObject>(STOP_ACK_ADDR)
+
+        consumerControl.startConsumers(listOf(shardId)).await().shouldBe(1)
+        startEventChannel.receive()
+
+        consumerControl.stopConsumer(shardId)
+        stopEventChannel.receive()
+
+        consumerControl.startConsumers(listOf(shardId)).await().shouldBe(1)
+        startEventChannel.receive()
+    }
+
+    @Test
+    internal fun stop_more_than_started_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBe(shardIds.size)
+        shardIds.forEach { shardId ->
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(
+                shardId
+            )
+        }
+
+        val stopEventChannel = eventBusChannelOf<JsonObject>(STOP_ACK_ADDR)
+        val stopConsumersCmdResult = consumerControl.stopConsumers(20).await()
+        stopConsumersCmdResult.stoppedShardIds.shouldContainExactlyInAnyOrder(shardIds)
+        stopConsumersCmdResult.activeConsumers.shouldBeZero()
+        shardIds.forEach { shardId ->
+            stopEventChannel.receive().body()
+                .mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(shardId)
+        }
+        // Verify only 10 consumers are stopped
+        delay(1000)
+        stopEventChannel.tryReceive().getOrNull().shouldBeNull()
+    }
+
+    @Test
+    internal fun force_latest_when_no_existing_sequence_number(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardId = ShardId("1")
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(listOf(shardId)).await().shouldBe(1)
+        val options = startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java)
+        options.shardId.shouldBe(shardId)
+        options.shardIteratorStrategy.shouldBe(ShardIteratorStrategy.FORCE_LATEST)
+    }
+
+    @Test
+    internal fun existing_or_latest_on_existing_sequence_number(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartStopAckConsumerVerticle::class.java))
+        val shardId = ShardId("1")
+        shardStatePersistenceService.saveConsumerShardSequenceNumber(shardId, SequenceNumber("1", SequenceNumberIteratorPosition.AT))
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(listOf(shardId)).await().shouldBe(1)
+        val options = startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java)
+        options.shardId.shouldBe(shardId)
+        options.shardIteratorStrategy.shouldBe(ShardIteratorStrategy.EXISTING_OR_LATEST)
+    }
+
+    @Test
+    internal fun stop_failing_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StopFailingConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBe(shardIds.size)
+        shardIds.forEach { shardId ->
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(
+                shardId
+            )
+        }
+
+        val stopEventChannel = eventBusChannelOf<JsonObject>(STOP_ACK_ADDR)
+
+        val stopConsumersCmdResult = consumerControl.stopConsumers(shardIds.size).await()
+        stopConsumersCmdResult.stoppedShardIds.shouldContainExactlyInAnyOrder(shardIds)
+        stopConsumersCmdResult.activeConsumers.shouldBeZero()
+        shardIds.forEach { shardId ->
+            stopEventChannel.receive().body()
+                .mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(shardId)
+        }
+    }
+
+    @Test
+    internal fun start_failing_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartFailingConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBeZero()
+        shardIds.forEach { shardId ->
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(
+                shardId
+            )
+        }
+    }
+
+    @Test
+    internal fun start_timed_out_consumers(testContext: VertxTestContext) = testContext.async {
+        val consumerControl = deployConsumerControl(consumerControlOptionsOf(StartTimeoutConsumerVerticle::class.java))
+        val shardIds = shardIds(10)
+        val startEventChannel = eventBusChannelOf<JsonObject>(START_ACK_ADDR)
+        consumerControl.startConsumers(shardIds).await().shouldBeZero()
+        shardIds.forEach { shardId ->
+            startEventChannel.receive().body().mapTo(KinesisConsumerVerticleOptions::class.java).shardId.shouldBe(
+                shardId
+            )
+        }
+    }
+
+    private fun shardIds(amount: Int) = IntRange(1, amount).map { ShardId("$it") }
 
     private suspend fun deployConsumerControl(
         options: ConsumerControlVerticle.Options
-    ): ConsumerControlVerticle.Options {
+    ): ConsumerControlService {
         deployTestVerticle<ConsumerControlVerticle>(options)
-        return options
+        return ConsumerControlService.createService(vertx)
     }
 
     private fun consumerControlOptionsOf(
         verticleClass: Class<out Verticle>,
-        loadConfiguration: LoadConfiguration,
-        verticleOptions: JsonObject = JsonObject()
+        verticleOptions: JsonObject = JsonObject(),
+        consumerDeploymentTimeoutMillis: Long = 1000,
     ) =
         VertxKinesisOrchestraOptions(
             applicationName = TEST_APPLICATION_NAME,
             streamName = TEST_STREAM_NAME,
             redisOptions = redisHeimdallOptions,
-            loadConfiguration = loadConfiguration,
             consumerVerticleClass = verticleClass.name,
-            consumerVerticleOptions = verticleOptions
+            consumerVerticleOptions = verticleOptions,
+            shardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
+            consumerDeploymentTimeout = Duration.ofMillis(consumerDeploymentTimeoutMillis)
         ).asConsumerControlOptions()
 }
 
-class RecordDataForwardKinesisConsumerTestVerticle : AbstractKinesisConsumerCoroutineVerticle() {
-
-    companion object {
-        const val RECORDS_RECEIVED_ACK_ADDR = "/kinesis-consumer-orchester/testing/records-received/ack"
+class StartStopAckConsumerVerticle : AbstractVerticle() {
+    override fun start() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.START_ACK_ADDR, config())
     }
 
-    override suspend fun onRecordsAsync(records: List<Record>) {
-        val recordsData = records.map { record -> record.data().asByteArray().toString(Charsets.UTF_8) }
-        vertx.eventBus().send(RECORDS_RECEIVED_ACK_ADDR, JsonArray(recordsData))
+    override fun stop() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.STOP_ACK_ADDR, config())
     }
 }
 
-private class ConsumedShardCountVerifier private constructor(
-    private val testContext: VertxTestContext,
-    private val checkpoint: Checkpoint
-) : Handler<Message<Int>> {
-
-    companion object {
-        fun withStartNotificationVerifier(testContext: VertxTestContext, checkpoint: Checkpoint) =
-            ConsumedShardCountVerifier(testContext, checkpoint).apply {
-                addDetectionStartNotificationVerifier()
-            }
+class StopFailingConsumerVerticle : AbstractVerticle() {
+    override fun start() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.START_ACK_ADDR, config())
     }
 
-    private var eventNumber = 0
-    private val verifiers = HashMap<Int, VertxTestContext.(Message<Int>) -> Unit>()
+    override fun stop() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.STOP_ACK_ADDR, config())
+        throw Exception("Some failure")
+    }
+}
 
-    private fun addDetectionStartNotificationVerifier() {
-        addVerifier(1, 0)
+class StartFailingConsumerVerticle : AbstractVerticle() {
+    override fun start() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.START_ACK_ADDR, config())
+        throw Exception("Some failure")
     }
 
-    fun addSequentialVerifier(eventNumber: Int): ConsumedShardCountVerifier = addVerifier(eventNumber, eventNumber - 1)
-
-    fun addVerifier(eventNumber: Int, expectedActiveConsumers: Int): ConsumedShardCountVerifier {
-        verifiers[eventNumber] = { msg ->
-            verify { msg.body().shouldBe(expectedActiveConsumers) }
-            checkpoint.flag()
-        }
-        return this
+    override fun stop() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.STOP_ACK_ADDR, config())
     }
+}
 
-    fun addVerifier(eventNumber: Int, verifier: VertxTestContext.(Message<Int>) -> Unit): ConsumedShardCountVerifier {
-        verifiers[eventNumber] = verifier
-        return this
-    }
-
-    override fun handle(msg: Message<Int>) {
-        val eventNumber = ++eventNumber
-        val verifier = verifiers[eventNumber]
-        if (verifier != null) {
-            verifier(testContext, msg)
-        } else {
-            testContext.failNow(Exception("No active consumer verifier on notification event number \"$eventNumber\""))
-        }
+class StartTimeoutConsumerVerticle : CoroutineVerticle() {
+    override suspend fun start() {
+        vertx.eventBus().send(ConsumerControlVerticleTest.START_ACK_ADDR, config)
+        delay(10000)
     }
 }

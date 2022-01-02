@@ -19,7 +19,12 @@ interface ConsumerControlService {
     )
 
     /**
-     * Stops the amount of given [consumerCount].
+     * Stops the consumer of an explicit shard.
+     */
+    fun stopConsumer(shardId: ShardId): Future<Void>
+
+    /**
+     * Stops the amount of consumer for the given [consumerCount].
      *
      * @return Result of the stop command which contains the ids of the stopped shards and the number of still active consumers.
      */

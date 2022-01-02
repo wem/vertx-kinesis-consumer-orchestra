@@ -1,139 +1,111 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.*
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ErrorHandling
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.FetcherOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumersCmdResult
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import io.vertx.core.eventbus.Message
+import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.json.JsonObject
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import mu.KLogging
-import kotlin.LazyThreadSafetyMode.NONE
 
-internal class ConsumerControlVerticle : CoroutineVerticle() {
+internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlService {
 
     private companion object : KLogging()
 
-    private val consumerDeploymentIds = HashMap<ShardId, String>()
-
-    private val options by lazy(NONE) { config.mapTo(Options::class.java) }
+    private val deployedConsumers = ArrayList<DeployedConsumer>()
+    private lateinit var options: Options
+    private lateinit var shardStatePersistenceService: ShardStatePersistenceServiceAsync
 
     override suspend fun start() {
-        vertx.eventBus().localConsumer(EventBusAddr.consumerControl.stopConsumerCmd, ::onStopConsumerCmd)
-            .completion().await()
-        vertx.eventBus().localConsumer(EventBusAddr.consumerControl.startConsumerCmd, ::onStartConsumerCmd)
-            .completion().await()
-
-        notifyAboutActiveConsumers() // Directly after start there would be no consumer, so we start the detection.
-        logger.debug { "Consumer control started with options \"$options\"" }
-        logger.info {
-            "VKCO instance configure to consume max. ${options.loadConfiguration.maxShardsCount} " +
-                    "shards from stream ${options.clusterName.streamName}"
-        }
+        options = config.mapTo(Options::class.java)
+        shardStatePersistenceService =
+            ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
+        ConsumerControlService.exposeService(vertx, this)
     }
 
-    private fun onStopConsumerCmd(msg: Message<StopConsumerCmd>) {
-        val shardId = msg.body().shardId
-        val deploymentIdToUndeploy = consumerDeploymentIds.remove(shardId)
-        if (deploymentIdToUndeploy.isNotNullOrBlank()) {
-            vertx.undeploy(deploymentIdToUndeploy) {
-                logAndNotifyAboutActiveConsumers()
-                if (it.succeeded()) {
-                    logger.info { "Consumer for shard \"$shardId\" stopped" }
-                    msg.ack()
-                } else {
-                    msg.fail(StopConsumerCmd.CONSUMER_STOP_FAILURE, it.cause().message)
-                }
-            }
-        } else {
-            logger.info { "Unable to stop consumer for shard \"$shardId\", because no known consumer for this shard" }
-            logAndNotifyAboutActiveConsumers()
-            msg.fail(StopConsumerCmd.UNKNOWN_CONSUMER_FAILURE, "Unknown consumer")
-        }
+    override fun stopConsumer(shardId: ShardId): Future<Void> {
+        val consumerToStop = deployedConsumers.firstOrNull { it.shardId == shardId }
+        return if (consumerToStop != null) {
+            vertx.undeploy(consumerToStop.deploymentId)
+                .onSuccess { deployedConsumers.remove(consumerToStop) }
+                .onFailure { cause -> logger.warn(cause) { "Failed to undeploy consumer of shard ${consumerToStop.shardId}" } }
+                .compose { Future.succeededFuture() }
+        } else Future.succeededFuture()
     }
 
-    private fun onStartConsumerCmd(msg: Message<StartConsumerCmd>) {
-        val cmd = msg.body()
-        val shardId = cmd.shardId
-        if (consumerDeploymentIds.containsKey(shardId)) {
-            msg.ack()
-            return
-        }
-        if (consumerCapacity() <= 0) {
-            logger.warn { "Consumer control unable to start consumer for shard $shardId because no consumer capacity left" }
-            logAndNotifyAboutActiveConsumers()
-            msg.fail(StartConsumerCmd.CONSUMER_CAPACITY_FAILURE, "No consumer capacity left")
-            return
-        }
+    override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
+        val consumersToStop = deployedConsumers.take(consumerCount)
+        val p = Promise.promise<StopConsumersCmdResult>()
+
         launch {
-            try {
-                withTimeout(options.consumerDeploymentTimeoutMillis) {
-                    val consumerOptions = createConsumerVerticleOptions(shardId, cmd.iteratorStrategy)
-                    startConsumer(
-                        options.consumerVerticleClass,
-                        JsonObject(options.consumerVerticleConfig),
-                        consumerOptions
-                    )
+            coroutineScope {
+                consumersToStop.forEach { consumerToStop ->
+                    try {
+                        vertx.undeploy(consumerToStop.deploymentId).await()
+                    } catch (e: Exception) {
+                        logger.warn(e) { "Failed to undeploy consumer of shard ${consumerToStop.shardId}" }
+                    }
+                    deployedConsumers.remove(consumerToStop)
                 }
-                logAndNotifyAboutActiveConsumers()
-                msg.ack()
-            } catch (e: Exception) {
-                logger.warn(e) { "Consumer control unable to start consumer for shard \"$shardId\"" }
-                logAndNotifyAboutActiveConsumers()
-                msg.fail(CONSUMER_START_FAILURE, e.message)
             }
+            p.complete(StopConsumersCmdResult(consumersToStop.map { it.shardId }, deployedConsumers.size))
         }
+
+        return p.future()
     }
 
-    private suspend fun startConsumer(
-        consumerVerticleClass: String,
-        consumerVerticleConfig: JsonObject,
-        consumerOptions: KinesisConsumerVerticleOptions
-    ) {
-        vertx.runCatching {
-            deployVerticle(
-                consumerVerticleClass,
-                deploymentOptionsOf(config = JsonObject.mapFrom(consumerOptions).mergeIn(consumerVerticleConfig, true))
-            ).await()
-        }.onSuccess { deploymentId ->
-            consumerDeploymentIds[consumerOptions.shardId] = deploymentId
-            logger.info { "Consumer started for stream ${options.clusterName.streamName} / shard \"${consumerOptions.shardId}\"." }
-        }.onFailure {
-            logger.error(it) { "Failed to start consumer of stream ${options.clusterName.streamName} / shard ${consumerOptions.shardId}" }
-        }
-    }
-
-    private fun logAndNotifyAboutActiveConsumers() {
-        if (consumerDeploymentIds.keys.isEmpty()) {
-            logger.info {
-                "Currently no shards get consumed on stream \"${options.clusterName.streamName}\". " +
-                        "This VKCO instance has to capacity to consume ${consumerCapacity()} shards"
+    override fun startConsumers(shardIds: List<ShardId>): Future<Int> {
+        val deployConsumerShardIds = deployedConsumers.map { deployedConsumer -> deployedConsumer.shardId }
+        val shardIdsToStartConsumer = shardIds.filterNot { deployConsumerShardIds.contains(it) }
+        val p = Promise.promise<Int>()
+        launch {
+            coroutineScope {
+                shardIdsToStartConsumer.forEach { shardIdToStartConsumer ->
+                    launch {
+                        try {
+                            val shardIteratorStrategy = shardIteratorStrategy(shardIdToStartConsumer)
+                            val consumerVerticleOptions =
+                                createConsumerVerticleOptions(shardIdToStartConsumer, shardIteratorStrategy)
+                            val customVerticleOption = JsonObject(options.consumerVerticleConfig)
+                            val verticleOptions =
+                                JsonObject.mapFrom(consumerVerticleOptions).mergeIn(customVerticleOption, true)
+                            withTimeout(options.consumerDeploymentTimeoutMillis) {
+                                val deploymentId = vertx.deployVerticle(
+                                    options.consumerVerticleClass,
+                                    deploymentOptionsOf(config = verticleOptions)
+                                ).await()
+                                deployedConsumers.add(DeployedConsumer(shardIdToStartConsumer, deploymentId))
+                            }
+                        } catch (e: Exception) {
+                            logger.warn(e) { "Failed to deploy consumer of shard $shardIdToStartConsumer" }
+                        }
+                    }
+                }
             }
-        } else {
-            logger.info {
-                "Currently the shards ${consumerDeploymentIds.keys.joinToString()} " +
-                        "are consumed on stream \"${options.clusterName.streamName}\". " +
-                        "This VKCO instance has to capacity to consume ${consumerCapacity()} further shards"
-            }
+            p.complete(deployedConsumers.size)
         }
-        notifyAboutActiveConsumers()
+        return p.future()
     }
 
-    private fun notifyAboutActiveConsumers() {
-        vertx.eventBus().send(EventBusAddr.detection.consumedShardCountNotification, consumerDeploymentIds.size)
+    private suspend fun shardIteratorStrategy(shardId: ShardId): ShardIteratorStrategy {
+        return if (shardStatePersistenceService.getConsumerShardSequenceNumber(shardId) == null) {
+            ShardIteratorStrategy.FORCE_LATEST
+        } else options.shardIteratorStrategy
     }
-
-    private fun consumerCapacity() = options.loadConfiguration.maxShardsCount - consumerDeploymentIds.size
 
     private fun createConsumerVerticleOptions(
         shardId: ShardId,
@@ -150,12 +122,11 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
         )
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    internal class Options(
+    internal data class Options(
         val clusterName: OrchestraClusterName,
         val redisHeimdallOptions: RedisHeimdallOptions,
         val fetcherOptions: FetcherOptions,
         val shardIteratorStrategy: ShardIteratorStrategy,
-        val loadConfiguration: LoadConfiguration,
         val errorHandling: ErrorHandling,
         val consumerDeploymentTimeoutMillis: Long,
         val consumerVerticleClass: String,
@@ -165,13 +136,14 @@ internal class ConsumerControlVerticle : CoroutineVerticle() {
     )
 }
 
+private data class DeployedConsumer(val shardId: ShardId, val deploymentId: String)
+
 
 internal fun VertxKinesisOrchestraOptions.asConsumerControlOptions() = ConsumerControlVerticle.Options(
     OrchestraClusterName(applicationName, streamName),
     redisOptions,
     fetcherOptions,
     shardIteratorStrategy,
-    loadConfiguration,
     errorHandling,
     consumerDeploymentTimeout.toMillis(),
     consumerVerticleClass,

@@ -82,6 +82,9 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
 
             deployNodeStateService(balancerOptions.clusterNodeId)
             ConsumerControlService.exposeService(vertx, object : ConsumerControlService {
+                override fun stopConsumer(shardId: ShardId): Future<Void> =
+                    Future.failedFuture("stopConsumer unsupported")
+
                 override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
                     val msg = "Stop consumers is not expected"
                     testContext.failNow(Exception(msg))
@@ -118,6 +121,10 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
 
             ConsumerControlService.exposeService(vertx, object : ConsumerControlService {
                 private var consumerStarts = 0
+
+                override fun stopConsumer(shardId: ShardId): Future<Void> =
+                    Future.failedFuture("stopConsumer unsupported")
+
                 override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
                     // Stop should get called one time, after the second node was coming up and the re-balancing happens
                     testContext.verify { consumerCount.shouldBe(shardsToBalance.size) }
@@ -256,7 +263,8 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
 
         delay(5000)
 
-        NodeScoreService.createService(additionalVertxInstances.last()).getNodeScores().await().map { it.score }.shouldContain(4)
+        NodeScoreService.createService(additionalVertxInstances.last()).getNodeScores().await().map { it.score }
+            .shouldContain(4)
     }
 
     @Test
@@ -282,25 +290,28 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
 
         val nodeCountRedeploymentCycle = 2
         // We replace each node instance
-        println("Redeployment started")
         repeat(5) {
-            println("Will shutdown $nodeCountRedeploymentCycle node instances")
             val noMoreConsumedShards = nodeInstances.takeAndRemove(nodeCountRedeploymentCycle).map {
                 it.vertxInstance.close().await()
                 it.consumerControlService
             }.map { it.activeConsumedShards }.flatten()
-            println("$nodeCountRedeploymentCycle node instances shutdown")
             sharedConsumableShardDetection.noMoreConsumed(noMoreConsumedShards)
-            redeployedNodeInstances.addAll(deployNodeInstances(nodeCountRedeploymentCycle, clusterName, sharedConsumableShardDetection))
-            println("Redeployed $nodeCountRedeploymentCycle node instances")
+            redeployedNodeInstances.addAll(
+                deployNodeInstances(
+                    nodeCountRedeploymentCycle,
+                    clusterName,
+                    sharedConsumableShardDetection
+                )
+            )
         }
-        println("Redeployed should be done done")
 
         delay(5000)
 
         redeployedNodeInstances.shouldHaveSize(expectedNodeCount)
-        redeployedNodeInstances.map { it.nodeId }.shouldNotContainAnyOf(initialNodeIds) // Verify all instances are replaced
-        NodeScoreService.createService(additionalVertxInstances.last()).getNodeScores().await().map { it.score }.shouldContain(2)
+        redeployedNodeInstances.map { it.nodeId }
+            .shouldNotContainAnyOf(initialNodeIds) // Verify all instances are replaced
+        NodeScoreService.createService(additionalVertxInstances.last()).getNodeScores().await().map { it.score }
+            .shouldContain(2)
     }
 
     private fun startVertxInstances(expectedNodeCount: Int): List<Vertx> {
@@ -396,6 +407,8 @@ private class TestConsumerControlService(
 ) : ConsumerControlService {
     val activeConsumedShards = ArrayList<ShardId>()
 
+    override fun stopConsumer(shardId: ShardId): Future<Void> = Future.failedFuture("stopConsumer unsupported")
+
     override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
         val stoppedShardIds = activeConsumedShards.takeAndRemove(consumerCount)
         consumableDetection.noMoreConsumed(stoppedShardIds)
@@ -422,6 +435,8 @@ private class DetectOnceConsumableShardDetectionService(shardsToDetect: List<Sha
 
 
 private object NoopConsumerControlService : ConsumerControlService {
+    override fun stopConsumer(shardId: ShardId): Future<Void> = Future.failedFuture("stopConsumer unsupported")
+
     override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> = Future.succeededFuture(
         StopConsumersCmdResult(
             emptyList(), 1

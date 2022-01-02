@@ -12,7 +12,6 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_USE_SDK_NETTY_CLIENT
@@ -97,13 +96,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * [ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy] too for more information.
      */
     val shardIteratorStrategy: ShardIteratorStrategy = ShardIteratorStrategy.EXISTING_OR_LATEST,
-
-    /**
-     * Finally the definition how many max. shards an orchestra instance could / should consume.
-     * Please read also the Javadoc on [ch.sourcemotion.vertx.kinesis.consumer.orchestra.LoadStrategy] too
-     * for more information.
-     */
-    val loadConfiguration: LoadConfiguration = LoadConfiguration.createConsumeExact(1),
 
     /**
      * How the orchestra should behave on failures during record processing.
@@ -249,42 +241,6 @@ enum class ShardIteratorStrategy {
      * be used.
      */
     FORCE_LATEST
-}
-
-data class LoadConfiguration constructor(
-    /**
-     * The exactly max count of shard will be processed, unaware of available event loop threads.
-     * This configuration encompass the scenario where we would fan-out on consumer level, where Kinesis is not
-     * the limiting factor.
-     */
-    val maxShardsCount: Int,
-
-    /**
-     * Interval to execute detection of not consumed shards. Common situations of not consumed shards are e.g. on
-     * VKCO startup or after a split resharding.
-     */
-    val notConsumedShardDetectionInterval: Long,
-) {
-    companion object {
-        @JvmOverloads
-        @JvmStatic
-        fun createConsumeAllShards(
-            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
-        ) =
-            LoadConfiguration(Int.MAX_VALUE, notConsumedShardDetectionInterval)
-
-        @JvmStatic
-        fun createConsumeExact(
-            exactCount: Int,
-            notConsumedShardDetectionInterval: Long = DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS
-        ) = LoadConfiguration(exactCount, notConsumedShardDetectionInterval)
-    }
-
-    init {
-        if (maxShardsCount < 1) {
-            throw VertxKinesisConsumerOrchestraException("Please configure a load configuration with at least 1 maxShardsCount")
-        }
-    }
 }
 
 data class KCLV1ImportOptions @JvmOverloads constructor(

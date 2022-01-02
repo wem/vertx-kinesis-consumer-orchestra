@@ -127,10 +127,6 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,
             redisOptions = redisHeimdallOptions,
             consumerVerticleOptions = JsonObject.mapFrom(ComponentTestConsumerOptions(PARAMETER_VALUE)),
-            loadConfiguration = LoadConfiguration.createConsumeExact(
-                consumerCount,
-                NOT_CONSUMED_SHARD_DETECTION_INTERVAL
-            ),
             fetcherOptions = fetcherOptions(streamDescription)
         )
 
