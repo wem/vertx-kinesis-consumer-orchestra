@@ -120,8 +120,8 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
     private suspend fun createStreamAndDeployVKCO(shardCount: Int = 1, consumerCount: Int = 1): StreamDescription {
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(shardCount)
         val orchestraOptions = VertxKinesisOrchestraOptions(
-            TEST_APPLICATION_NAME,
-            TEST_STREAM_NAME,
+            applicationName = TEST_APPLICATION_NAME,
+            streamName = TEST_STREAM_NAME,
             region = AWS_REGION,
             credentialsProviderSupplier = { AWS_CREDENTIALS_PROVIDER },
             consumerVerticleClass = ComponentTestConsumerVerticle::class.java.name,

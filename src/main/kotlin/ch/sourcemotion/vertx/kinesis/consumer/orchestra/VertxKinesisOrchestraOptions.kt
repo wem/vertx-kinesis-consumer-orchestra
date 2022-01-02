@@ -33,6 +33,10 @@ import java.util.function.Supplier
 
 data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     /**
+     * Identification of a single orchestra node instance. It's optional to set this by client.
+     */
+    val nodeId: String? = null,
+    /**
      * The name of the application this orchestra is used by. This name is represents the discriminator between different orchestras.
      * Shard iterators and states are persisted on Redis per application, so it's possible that multiple application independently
      * consumes records from the same stream.

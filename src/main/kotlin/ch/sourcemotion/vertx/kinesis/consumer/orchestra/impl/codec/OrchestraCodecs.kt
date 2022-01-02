@@ -1,9 +1,9 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.StartConsumerCmd
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.MergeReshardingEvent
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding.SplitReshardingEvent
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
 import io.vertx.core.eventbus.EventBus
 
 internal object OrchestraCodecs {

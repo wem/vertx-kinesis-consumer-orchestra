@@ -16,10 +16,4 @@ internal class RedisKeyFactory(private val clusterName: OrchestraClusterName) {
     fun createShardFinishedKey(shardId: ShardId): String = "$shardFinishedKeyBase$shardId"
 
     fun createDeploymentLockKey() = "$clusterName-deployment-lock"
-
-    fun createMergeParentReadyToReshardKey(parentShardId: ShardId, childShardId: ShardId) =
-        "$clusterName-ready-for-merge-$childShardId-$parentShardId"
-
-    fun createMergeParentReadyToReshardKeyWildcard(childShardId: ShardId) =
-        "$clusterName-ready-for-merge-$childShardId-*"
 }

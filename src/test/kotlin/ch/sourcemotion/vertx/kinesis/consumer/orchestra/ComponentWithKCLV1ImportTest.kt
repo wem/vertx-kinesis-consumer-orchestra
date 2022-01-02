@@ -76,8 +76,8 @@ internal class ComponentWithImportTest : AbstractKinesisAndRedisTest() {
 
             orchestra = VertxKinesisOrchestra.create(
                 vertx, VertxKinesisOrchestraOptions(
-                    TEST_APPLICATION_NAME,
-                    TEST_STREAM_NAME,
+                    applicationName = TEST_APPLICATION_NAME,
+                    streamName = TEST_STREAM_NAME,
                     credentialsProviderSupplier = { AWS_CREDENTIALS_PROVIDER },
                     consumerVerticleClass = ComponentWithImportTestConsumerVerticle::class.java.name,
                     redisOptions = redisHeimdallOptions,

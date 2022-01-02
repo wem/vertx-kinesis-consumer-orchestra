@@ -5,6 +5,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesisConsumerCoroutineVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.RecordDataForwardKinesisConsumerTestVerticle.Companion.RECORDS_RECEIVED_ACK_ADDR
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.ints.shouldBeBetween
@@ -291,8 +293,8 @@ internal class ConsumerControlVerticleTest : AbstractKinesisAndRedisTest() {
         verticleOptions: JsonObject = JsonObject()
     ) =
         VertxKinesisOrchestraOptions(
-            TEST_APPLICATION_NAME,
-            TEST_STREAM_NAME,
+            applicationName = TEST_APPLICATION_NAME,
+            streamName = TEST_STREAM_NAME,
             redisOptions = redisHeimdallOptions,
             loadConfiguration = loadConfiguration,
             consumerVerticleClass = verticleClass.name,

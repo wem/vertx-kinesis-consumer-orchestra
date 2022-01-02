@@ -2,11 +2,11 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.EventBusAddr
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldBeNull

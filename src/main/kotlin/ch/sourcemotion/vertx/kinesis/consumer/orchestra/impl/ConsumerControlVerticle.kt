@@ -2,10 +2,12 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StartConsumerCmd.FailureCodes.CONSUMER_START_FAILURE
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.vertx.core.eventbus.Message
@@ -177,18 +179,3 @@ internal fun VertxKinesisOrchestraOptions.asConsumerControlOptions() = ConsumerC
     kclV1ImportOptions?.importAddress,
     shardProgressExpiration.toMillis()
 )
-
-
-internal data class StartConsumerCmd(val shardId: ShardId, val iteratorStrategy: ShardIteratorStrategy) {
-    companion object FailureCodes {
-        const val CONSUMER_CAPACITY_FAILURE = 1
-        const val CONSUMER_START_FAILURE = 2
-    }
-}
-
-internal data class StopConsumerCmd(val shardId: ShardId) {
-    companion object {
-        const val UNKNOWN_CONSUMER_FAILURE = 1
-        const val CONSUMER_STOP_FAILURE = 2
-    }
-}
