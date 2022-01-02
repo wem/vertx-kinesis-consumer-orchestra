@@ -72,7 +72,6 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
 
         val parentShards = streamDescriptionBeforeSplit.shards()
         kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
-        println("CHECK")
 
         parentShards.forEach { parentShard ->
             kinesisClient.splitShardFair(parentShard)

@@ -73,27 +73,23 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
         val shardIdsToStartConsumer = shardIds.filterNot { deployConsumerShardIds.contains(it) }
         val p = Promise.promise<Int>()
         launch {
-            coroutineScope {
-                shardIdsToStartConsumer.forEach { shardIdToStartConsumer ->
-                    launch {
-                        try {
-                            val shardIteratorStrategy = shardIteratorStrategy(shardIdToStartConsumer)
-                            val consumerVerticleOptions =
-                                createConsumerVerticleOptions(shardIdToStartConsumer, shardIteratorStrategy)
-                            val customVerticleOption = JsonObject(options.consumerVerticleConfig)
-                            val verticleOptions =
-                                JsonObject.mapFrom(consumerVerticleOptions).mergeIn(customVerticleOption, true)
-                            withTimeout(options.consumerDeploymentTimeoutMillis) {
-                                val deploymentId = vertx.deployVerticle(
-                                    options.consumerVerticleClass,
-                                    deploymentOptionsOf(config = verticleOptions)
-                                ).await()
-                                deployedConsumers.add(DeployedConsumer(shardIdToStartConsumer, deploymentId))
-                            }
-                        } catch (e: Exception) {
-                            logger.warn(e) { "Failed to deploy consumer of shard $shardIdToStartConsumer" }
-                        }
+            shardIdsToStartConsumer.forEach { shardIdToStartConsumer ->
+                try {
+                    val shardIteratorStrategy = shardIteratorStrategy(shardIdToStartConsumer)
+                    val consumerVerticleOptions =
+                        createConsumerVerticleOptions(shardIdToStartConsumer, shardIteratorStrategy)
+                    val customVerticleOption = JsonObject(options.consumerVerticleConfig)
+                    val verticleOptions =
+                        JsonObject.mapFrom(consumerVerticleOptions).mergeIn(customVerticleOption, true)
+                    withTimeout(options.consumerDeploymentTimeoutMillis) {
+                        val deploymentId = vertx.deployVerticle(
+                            options.consumerVerticleClass,
+                            deploymentOptionsOf(config = verticleOptions)
+                        ).await()
+                        deployedConsumers.add(DeployedConsumer(shardIdToStartConsumer, deploymentId))
                     }
+                } catch (e: Exception) {
+                    logger.warn(e) { "Failed to deploy consumer of shard $shardIdToStartConsumer" }
                 }
             }
             p.complete(deployedConsumers.size)

@@ -1,6 +1,5 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service
 
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.service.ServiceProxyManager
 import com.fasterxml.jackson.annotation.JsonProperty
@@ -36,22 +35,6 @@ interface ConsumerControlService {
      * @return Count of currently active consumers
      */
     fun startConsumers(shardIds: List<ShardId>): Future<Int>
-}
-
-@DataObject
-data class StartConsumerCmd(val shardId: ShardId, val iteratorStrategy: ShardIteratorStrategy) {
-    companion object FailureCodes {
-        const val CONSUMER_CAPACITY_FAILURE = 1
-        const val CONSUMER_START_FAILURE = 2
-    }
-}
-
-@DataObject
-data class StopConsumerCmd(val shardId: ShardId) {
-    companion object {
-        const val UNKNOWN_CONSUMER_FAILURE = 1
-        const val CONSUMER_STOP_FAILURE = 2
-    }
 }
 
 @DataObject

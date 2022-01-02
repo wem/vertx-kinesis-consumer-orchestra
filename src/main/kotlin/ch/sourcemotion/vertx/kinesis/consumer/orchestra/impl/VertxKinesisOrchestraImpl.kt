@@ -4,6 +4,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.KCLV1ImportOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestra
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.balancing.BalancingVerticle
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cluster.RedisNodeScoreVerticle
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.OrchestraCodecs
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.credentials.ShareableAwsCredentialsProvider
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNull
@@ -25,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import mu.KLogging
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider
+import java.util.*
 
 internal class VertxKinesisOrchestraImpl(
     private val vertx: Vertx,
@@ -44,9 +47,12 @@ internal class VertxKinesisOrchestraImpl(
 
             OrchestraCodecs.deployCodecs(vertx.eventBus())
 
-        val awsCredentialsProvider = options.credentialsProviderSupplier.get()
-        shareCredentials(awsCredentialsProvider)
-        shareKinesisClientFactories(vertx)
+            val clusterName = OrchestraClusterName(options.applicationName, options.streamName)
+            val clusterNodeId = OrchestraClusterNodeId(clusterName, options.nodeId ?: "${UUID.randomUUID()}")
+
+            val awsCredentialsProvider = options.credentialsProviderSupplier.get()
+            shareCredentials(awsCredentialsProvider)
+            shareKinesisClientFactories(vertx)
 
             if (options.useCustomShardStatePersistenceService.not()) {
                 deployDefaultShardStatePersistence()
@@ -57,10 +63,14 @@ internal class VertxKinesisOrchestraImpl(
                 deployKCL1Importer(kclV1ImportOptions)
             }
 
-            deployReshardingVerticle()
-            deployConsumableShardDetectorVerticle()
+            deployReshardingVerticle(clusterName)
+            deployConsumableShardDetectorVerticle(clusterName)
 
             deployConsumerControlVerticle()
+
+            deployNodeScoreVerticle(clusterNodeId)
+            deployBalancingVerticle(clusterNodeId)
+
             scheduleLastDefenseClose()
             running = true
         }.invokeOnCompletion { throwable ->
@@ -113,18 +123,33 @@ internal class VertxKinesisOrchestraImpl(
         }
     }
 
-    private suspend fun deployConsumableShardDetectorVerticle() {
-        val options = ConsumableShardDetectionVerticle.Options(
-            OrchestraClusterName(options.applicationName, options.streamName)
-        )
+    private suspend fun deployConsumableShardDetectorVerticle(clusterName: OrchestraClusterName) {
+        val options = ConsumableShardDetectionVerticle.Options(clusterName)
         subsystemDeploymentIds.add(deployVerticle<ConsumableShardDetectionVerticle>(options))
     }
 
-    private suspend fun deployReshardingVerticle() {
-        val options = ReshardingVerticle.Options(
-            OrchestraClusterName(options.applicationName, options.streamName),
-            options.redisOptions
-        )
+    private suspend fun deployNodeScoreVerticle(clusterNodeId: OrchestraClusterNodeId) {
+        val options =
+            RedisNodeScoreVerticle.Options(clusterNodeId, options.redisOptions, options.balancing.nodeKeepAliveMillis)
+        subsystemDeploymentIds.add(deployVerticle<RedisNodeScoreVerticle>(options))
+    }
+
+    private suspend fun deployBalancingVerticle(clusterNodeId: OrchestraClusterNodeId) {
+        val balancingOptions = options.balancing
+        val options =
+            BalancingVerticle.Options(
+                clusterNodeId,
+                options.redisOptions,
+                balancingOptions.nodeKeepAliveMillis,
+                balancingOptions.initialBalancingDelayMillis,
+                balancingOptions.balancingIntervalMillis,
+                balancingOptions.balancingCommandTimeoutMillis
+            )
+        subsystemDeploymentIds.add(deployVerticle<BalancingVerticle>(options))
+    }
+
+    private suspend fun deployReshardingVerticle(clusterName: OrchestraClusterName) {
+        val options = ReshardingVerticle.Options(clusterName, options.redisOptions)
         subsystemDeploymentIds.add(deployVerticle<ReshardingVerticle>(options))
     }
 

@@ -1,5 +1,8 @@
 package ch.sourcemotion.vertx.kinesis.consumer.orchestra
 
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_BALANCING_COMMAND_TIMEOUT_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_BALANCING_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_ACTIVE_CHECK_INTERVAL
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_CONSUMER_REGISTRATION_RETRY_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_FETCHER_METRICS_ENABLED
@@ -9,9 +12,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOpt
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_DECREASE_ADJUSTMENT_THRESHOLD
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_LIMIT_INCREASE_ADJUSTMENT_THRESHOLD
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_GET_RECORDS_RESULTS_ADJUSTMENT_INCLUSION
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_INITIAL_BALANCING_DELAY_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_LIMIT_ADJUSTMENT_PERCENTILE
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MINIMAL_GET_RECORDS_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_MIN_RESUBSCRIBE_INTERVAL_MILLIS
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_NODE_KEEP_ALIVE_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_FETCH_INTERVAL_MILLIS
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_RECORDS_PREFETCH_LIMIT
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.Companion.DEFAULT_USE_SDK_NETTY_CLIENT
@@ -158,7 +163,9 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
      * Fetcher options. Default a dynamic fetcher is enabled, which will adjust the get records request limit according
      * to the count of records per response of previous requests.
      */
-    val fetcherOptions: FetcherOptions = FetcherOptions()
+    val fetcherOptions: FetcherOptions = FetcherOptions(),
+
+    val balancing: Balancing = Balancing()
 ) {
     companion object {
         /**
@@ -178,7 +185,13 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_DETECTION_LOCK_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_DETECTION_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
-        const val DEFAULT_NOT_CONSUMED_SHARD_DETECTION_INTERVAL_MILLIS = 1000L
+
+        // Balancing
+        const val DEFAULT_NODE_KEEP_ALIVE_MILLIS = 3000L
+        const val DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS = 3000L
+        const val DEFAULT_INITIAL_BALANCING_DELAY_MILLIS = 3000L
+        const val DEFAULT_BALANCING_INTERVAL_MILLIS = 3000L
+        const val DEFAULT_BALANCING_COMMAND_TIMEOUT_MILLIS = 30000L // Default event bus timeout
 
         const val DEFAULT_USE_SDK_NETTY_CLIENT = true
 
@@ -410,6 +423,14 @@ data class DynamicLimitAdjustment(
     }
 
 }
+
+data class Balancing(
+    val nodeKeepAliveMillis: Long = DEFAULT_NODE_KEEP_ALIVE_MILLIS,
+    val activeBalancerCheckIntervalMillis: Long = DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS,
+    val initialBalancingDelayMillis: Long = DEFAULT_INITIAL_BALANCING_DELAY_MILLIS,
+    val balancingIntervalMillis: Long = DEFAULT_BALANCING_INTERVAL_MILLIS,
+    val balancingCommandTimeoutMillis: Long = DEFAULT_BALANCING_COMMAND_TIMEOUT_MILLIS,
+)
 
 private fun Int.isPositive() = this > 0
 
