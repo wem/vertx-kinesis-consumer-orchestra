@@ -3,6 +3,7 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisConsumerOrchestraException
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.isNotNullOrBlank
 import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonProperty
 import com.fasterxml.jackson.annotation.JsonValue
 import io.vertx.codegen.annotations.DataObject
 import io.vertx.core.json.JsonObject
@@ -18,7 +19,7 @@ data class OrchestraClusterNodeId(val clusterName: String, val nodeId: String) {
     companion object {
         @JvmStatic
         @JsonCreator
-        fun of(value: String) : OrchestraClusterNodeId {
+        fun of(value: String): OrchestraClusterNodeId {
             val parts = value.split("::")
             if (parts.size != 2) {
                 throw VertxKinesisConsumerOrchestraException("$value is not a valid Orchestra cluster node id")
@@ -31,8 +32,10 @@ data class OrchestraClusterNodeId(val clusterName: String, val nodeId: String) {
     override fun toString() = "$clusterName::$nodeId"
 }
 
-data class OrchestraClusterName(val applicationName: String, val streamName: String) {
-    @JsonValue
+data class OrchestraClusterName(
+    @field:JsonProperty("applicationName") val applicationName: String,
+    @field:JsonProperty("streamName") val streamName: String
+) {
     override fun toString() = "$applicationName-$streamName"
 }
 
