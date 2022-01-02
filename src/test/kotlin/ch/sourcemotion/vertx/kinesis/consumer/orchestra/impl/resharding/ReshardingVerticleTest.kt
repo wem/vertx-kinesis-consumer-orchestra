@@ -2,31 +2,26 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.resharding
 
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.EventBusAddr
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumersCmdResult
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.concurrent.TimeUnit
 
 internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
-
-    @BeforeEach
-    internal fun setUp() = asyncBeforeOrAfter {
-        val options = ReshardingVerticle.Options(TEST_CLUSTER_ORCHESTRA_NAME, redisHeimdallOptions)
-        deployTestVerticle<ReshardingVerticle>(options)
-    }
 
     /**
      * On merge resharding event, both parent shard must get stopped.
@@ -37,18 +32,18 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         testContext.async(2) { checkpoint ->
             val (childShardId, parentShardIds) = createStreamAndMerge()
 
-            eventBus.consumer<StopConsumerCmd>(EventBusAddr.consumerControl.stopConsumerCmd) { msg ->
-                defaultTestScope.launch {
-                    val sequenceNumber =
-                        shardStatePersistenceService.getConsumerShardSequenceNumber(childShardId)
-                    testContext.verify {
-                        sequenceNumber.shouldNotBeNull()
-                        parentShardIds.shouldContain(msg.body().shardId)
-                    }
-                    msg.ack()
-                    checkpoint.flag()
+            ConsumerControlService.exposeService(vertx, StopOnlyConsumerControlService(defaultTestScope) { shardId ->
+                val sequenceNumber =
+                    shardStatePersistenceService.getConsumerShardSequenceNumber(childShardId)
+                testContext.verify {
+                    sequenceNumber.shouldNotBeNull()
+                    parentShardIds.shouldContain(shardId)
                 }
-            }.completion().await()
+                checkpoint.flag()
+            }).await()
+
+            val options = ReshardingVerticle.Options(TEST_CLUSTER_ORCHESTRA_NAME, redisHeimdallOptions)
+            deployTestVerticle<ReshardingVerticle>(options)
 
             parentShardIds.forEach { parentShardId ->
                 eventBus.request<Unit>(
@@ -67,18 +62,17 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         testContext.async(1) { checkpoint ->
             val (childShardIds, parentShardId) = createStreamAndSplit()
 
-            eventBus.consumer<StopConsumerCmd>(EventBusAddr.consumerControl.stopConsumerCmd) { msg ->
-                val shardId = msg.body().shardId
-                defaultTestScope.launch {
-                    val sequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
-                    testContext.verify {
-                        shardId.shouldBe(parentShardId)
-                        sequenceNumber.shouldBeNull()
-                    }
-                    msg.ack()
-                    checkpoint.flag()
+            ConsumerControlService.exposeService(vertx, StopOnlyConsumerControlService(defaultTestScope) { shardId ->
+                val sequenceNumber = shardStatePersistenceService.getConsumerShardSequenceNumber(shardId)
+                testContext.verify {
+                    shardId.shouldBe(parentShardId)
+                    sequenceNumber.shouldBeNull()
                 }
-            }.completion().await()
+                checkpoint.flag()
+            }).await()
+
+            val options = ReshardingVerticle.Options(TEST_CLUSTER_ORCHESTRA_NAME, redisHeimdallOptions)
+            deployTestVerticle<ReshardingVerticle>(options)
 
             eventBus.request<Unit>(
                 EventBusAddr.resharding.notification,
@@ -103,5 +97,24 @@ internal class ReshardingVerticleTest : AbstractKinesisAndRedisTest() {
         val childShardId = kinesisClient.streamDescriptionWhenActiveAwait(streamDescription.streamName()).shards()
             .first { parentShardIds.contains(it.shardIdTyped()).not() }.shardIdTyped()
         return childShardId to parentShardIds
+    }
+}
+
+private class StopOnlyConsumerControlService(private val scope: CoroutineScope, private val block: suspend (ShardId) -> Unit) : ConsumerControlService {
+    override fun stopConsumer(shardId: ShardId): Future<Void> {
+        val p = Promise.promise<Void>()
+        scope.launch {
+            block(shardId)
+            p.complete()
+        }
+        return p.future()
+    }
+
+    override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
+        TODO("Not yet implemented")
+    }
+
+    override fun startConsumers(shardIds: List<ShardId>): Future<Int> {
+        TODO("Not yet implemented")
     }
 }

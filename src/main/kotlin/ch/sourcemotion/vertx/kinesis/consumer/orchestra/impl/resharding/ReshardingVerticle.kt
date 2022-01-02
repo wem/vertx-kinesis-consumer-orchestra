@@ -6,13 +6,11 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.ack
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.kinesis.KinesisAsyncClientFactory
-import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumerCmd
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import io.vertx.core.eventbus.Message
-import io.vertx.core.eventbus.ReplyException
-import io.vertx.kotlin.core.eventbus.deliveryOptionsOf
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import kotlinx.coroutines.launch
@@ -24,19 +22,20 @@ import java.time.Duration
 
 internal class ReshardingVerticle : CoroutineVerticle() {
 
-    private companion object : KLogging() {
-        private val localOnlyDeliveryOptions = deliveryOptionsOf(localOnly = true)
-    }
+    private companion object : KLogging()
 
-    private lateinit var options : Options
-    private lateinit var shardStatePersistence : ShardStatePersistenceServiceAsync
+    private lateinit var options: Options
+    private lateinit var shardStatePersistence: ShardStatePersistenceServiceAsync
     private lateinit var kinesisClient: KinesisAsyncClient
+    private lateinit var consumerControlService: ConsumerControlService
 
     override suspend fun start() {
         options = config.mapTo(Options::class.java)
+        consumerControlService = ConsumerControlService.createService(vertx)
         shardStatePersistence = ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
-        kinesisClient = SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
-            .createKinesisAsyncClient(vertx.orCreateContext)
+        kinesisClient =
+            SharedData.getSharedInstance<KinesisAsyncClientFactory>(vertx, KinesisAsyncClientFactory.SHARED_DATA_REF)
+                .createKinesisAsyncClient(vertx.orCreateContext)
         vertx.eventBus().localConsumer(EventBusAddr.resharding.notification, this::onReshardingEvent)
             .completion().await()
     }
@@ -68,11 +67,15 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         finishShardConsuming(event, parentShardId)
     }
 
-    private suspend fun finishShardConsuming(event: ReshardingEvent,parentShardId: ShardId) {
+    private suspend fun finishShardConsuming(event: ReshardingEvent, parentShardId: ShardId) {
         val streamDescription = kinesisClient.streamDescriptionWhenActiveAwait(options.clusterName.streamName)
         persistChildShardsIterators(event, streamDescription)
         saveFinishedShard(parentShardId, streamDescription)
-        sendStopShardConsumerCmd(parentShardId)
+        try {
+            consumerControlService.stopConsumer(parentShardId).await()
+        } catch (e: Exception) {
+            logger.warn(e) { "Stopping consumer of shard $parentShardId did fail" }
+        }
     }
 
     /**
@@ -86,35 +89,16 @@ internal class ReshardingVerticle : CoroutineVerticle() {
         shardStatePersistence.deleteShardSequenceNumber(shardId)
     }
 
-    private suspend fun sendStopShardConsumerCmd(shardId: ShardId) {
-        vertx.eventBus()
-            .runCatching {
-                request<Unit>(
-                    EventBusAddr.consumerControl.stopConsumerCmd,
-                    StopConsumerCmd(shardId),
-                    localOnlyDeliveryOptions
-                ).await()
-            }
-            .onFailure {
-                if (it is ReplyException) {
-                    when (it.failureCode()) {
-                        StopConsumerCmd.CONSUMER_STOP_FAILURE -> logger.warn(it) { "Failed to start consumer for shard \"$shardId\" after resharding." }
-                        StopConsumerCmd.UNKNOWN_CONSUMER_FAILURE -> logger.warn(it) { "Consumer of resharded shard \"$shardId\" unknown. This should not happen, but should not be critical." }
-                    }
-                } else {
-                    logger.warn(it) { "Failed to stop consumer for shard \"$shardId\" after resharding. This may relates to a bug. " +
-                            "Please restart this VKCO instance and report an issue." }
-                }
-            }
-    }
-
 
     /**
      * Persist the starting sequence numbers of resharding child shards.
      *
      * This happens here as this should be early as possible and the follow up workflow steps would be much more easier.
      */
-    private suspend fun persistChildShardsIterators(reshardingEvent: ReshardingEvent, streamDescription: StreamDescription) {
+    private suspend fun persistChildShardsIterators(
+        reshardingEvent: ReshardingEvent,
+        streamDescription: StreamDescription
+    ) {
         val childShardIds = when (reshardingEvent) {
             is MergeReshardingEvent -> {
                 listOf(reshardingEvent.childShardId)
