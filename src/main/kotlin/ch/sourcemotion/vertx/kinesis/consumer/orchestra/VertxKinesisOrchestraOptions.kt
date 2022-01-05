@@ -118,14 +118,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
     ),
 
     /**
-     * Interval of the retry to acquire detection lock. Each orchestra instance have to get acquire the lock during
-     * detection of consumable shards.
-     */
-    val detectionLockAcquisitionInterval: Duration = Duration.ofMillis(
-        DEFAULT_DETECTION_LOCK_ACQUISITION_INTERVAL_MILLIS
-    ),
-
-    /**
      * Max time(out) a deployment of a shard consumers can take, before its handled as failed. Later detections
      * can retry it.
      */
@@ -184,7 +176,6 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
 
         const val DEFAULT_SHARD_PROGRESS_EXPIRATION_MILLIS = 10000L
         const val DEFAULT_DETECTION_LOCK_EXPIRATION_MILLIS = 10000L
-        const val DEFAULT_DETECTION_LOCK_ACQUISITION_INTERVAL_MILLIS = 500L
 
         // Balancing
         const val DEFAULT_NODE_KEEP_ALIVE_MILLIS = 3000L
