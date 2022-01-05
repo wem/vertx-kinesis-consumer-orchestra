@@ -38,13 +38,13 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
 
     override suspend fun stop() {
         nodeAliveStateRefresherId?.let { vertx.cancelTimer(it) }
-        CompositeFuture.all(removeNodeScoresOf(listOf(options.clusterNodeId)), removeThisNodeAliveState()).await()
+        runCatching { CompositeFuture.all(removeNodeScoresOf(listOf(options.clusterNodeId)), removeThisNodeAliveState()).await() }
     }
 
     override fun setThisNodeScore(score: Int): Future<Void> = redis.send(
         Request.cmd(Command.ZADD).arg(nodeStateScoreSetName).arg(score).arg("${options.clusterNodeId}")
     ).compose {
-        logger.info { "Score of node ${options.clusterNodeId} updated to value $score" }
+        logger.info { "Score of node ${options.clusterNodeId} updated to $score" }
         Future.succeededFuture()
     }
 
@@ -85,10 +85,11 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
 
         // Remove all not alive node ids from store
         if (notAliveNodeIds.isNotEmpty()) {
+            logger.info { "Remove score(s) of node(s): $notAliveNodeIds" }
             removeNodeScoresOf(notAliveNodeIds).await()
         }
 
-        return storedNodeScores.filterNot { notAliveNodeIds.contains(it.clusterNodeId) }
+        return storedNodeScores.filterNot { storedNodeScore -> notAliveNodeIds.contains(storedNodeScore.clusterNodeId) }
     }
 
     private fun removeNodeScoresOf(nodeIds: List<OrchestraClusterNodeId>): Future<Unit> {

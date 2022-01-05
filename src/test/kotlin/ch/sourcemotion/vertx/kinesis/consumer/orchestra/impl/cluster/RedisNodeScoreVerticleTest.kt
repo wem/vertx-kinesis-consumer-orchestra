@@ -15,7 +15,7 @@ import io.vertx.kotlin.coroutines.await
 import org.junit.jupiter.api.Test
 import java.util.*
 
-internal class RedisNodeStateVerticleTest : AbstractRedisTest() {
+internal class RedisNodeScoreVerticleTest : AbstractRedisTest() {
 
     private companion object {
         const val DEFAULT_NODE_KEEP_ALIVE_MILLIS = 100L
@@ -23,7 +23,7 @@ internal class RedisNodeStateVerticleTest : AbstractRedisTest() {
 
     @Test
     internal fun this_node_score_on_deploy(testContext: VertxTestContext) = testContext.async {
-        val (_, nodeId) = deployOrchestraNodeStateVerticle()
+        val (_, nodeId) = deployNodeScoreVerticle()
         val nodeScoreService = NodeScoreService.createService(vertx)
         val nodeScores = nodeScoreService.getNodeScores().await()
         val thisNodeScore = nodeScores.shouldHaveSize(1).first()
@@ -35,13 +35,13 @@ internal class RedisNodeStateVerticleTest : AbstractRedisTest() {
     internal fun multiple_nodes_deployment(testContext: VertxTestContext) = testContext.async {
         // Deploy main node and create service
         val remoteNodeCount = 11
-        val (_, mainNodeId) = deployOrchestraNodeStateVerticle()
+        val (_, mainNodeId) = deployNodeScoreVerticle()
         val nodeScoreService = NodeScoreService.createService(vertx)
 
         // Deploy some remote nodes and safe their deployment id
         val otherNodeStatesDeploymentIds = buildList {
             repeat(remoteNodeCount) {
-                add(deployOrchestraNodeStateVerticle().first)
+                add(deployNodeScoreVerticle().first)
             }
         }
 
@@ -65,7 +65,7 @@ internal class RedisNodeStateVerticleTest : AbstractRedisTest() {
     @Test
     internal fun update_this_node_score(testContext: VertxTestContext) = testContext.async {
         val expectedScore = 10
-        val (_, nodeId) = deployOrchestraNodeStateVerticle()
+        val (_, nodeId) = deployNodeScoreVerticle()
         val nodeScoreService = NodeScoreService.createService(vertx)
         nodeScoreService.getNodeScores().await().let { nodeScores ->
             val nodeScoreDto = nodeScores.shouldHaveSize(1).first()
@@ -80,7 +80,7 @@ internal class RedisNodeStateVerticleTest : AbstractRedisTest() {
         thisNodeScore.clusterNodeId.shouldBe(nodeId)
     }
 
-    private suspend fun deployOrchestraNodeStateVerticle(
+    private suspend fun deployNodeScoreVerticle(
         nodeId: OrchestraClusterNodeId = orchestraClusterNodeId(),
         nodeKeepAliveMillis: Long = DEFAULT_NODE_KEEP_ALIVE_MILLIS
     ): Pair<String, OrchestraClusterNodeId> {
