@@ -70,8 +70,14 @@ suspend fun KinesisAsyncClient.putRecordsExplicitHashKey(
     recordDataSupplier: (Int) -> SdkBytes = { suffix -> SdkBytes.fromUtf8String("record-data-$suffix") },
     predefinedShards: ShardList? = null
 ) {
+    // We load the shards freshly from Kinesis, because the hash key range could be changed in the meanwhile
+    val currentShards = streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
+    val shards = if (predefinedShards != null) {
+        val predefinedShardIds = predefinedShards.map { it.shardId() }
+        currentShards.filter { predefinedShardIds.contains(it.shardId()) }
+    } else currentShards
+
     // Count of record bundles must be equal according the shards count
-    val shards = predefinedShards ?: streamDescriptionWhenActiveAwait(TEST_STREAM_NAME).shards()
     shards.shouldHaveSize(recordBatching.recordBatches)
 
     repeat(recordBatching.recordBatches) { bundleIdx ->
