@@ -15,7 +15,7 @@ internal class ReBalancingCalculatorTest {
     fun single_new_spawned_node_instance() {
         val nodeId = orchestraClusterNodeIdOf()
         val shardCountChange = 8
-        val reBalancingCalcResult = ReBalancingCalculator(mapOf(nodeId to 0)).calculateReBalance(shardCountChange)
+        val reBalancingCalcResult = ReBalancingCalculator(listOf(nodeId to 0)).calculateReBalance(shardCountChange)
         val reBalancingEntry = reBalancingCalcResult.reBalancingNodeInfos.shouldHaveSize(1).first()
         reBalancingCalcResult.needsReBalancing().shouldBeTrue()
         reBalancingEntry.nodeId.shouldBe(nodeId)
@@ -30,7 +30,7 @@ internal class ReBalancingCalculatorTest {
         val existingNodeIds = listOf(orchestraClusterNodeIdOf(), orchestraClusterNodeIdOf(), orchestraClusterNodeIdOf())
         val newNodeId = orchestraClusterNodeIdOf()
         val reBalancingCalcResult = ReBalancingCalculator(
-            mapOf(
+            listOf(
                 existingNodeIds[0] to 8,
                 existingNodeIds[1] to 8,
                 existingNodeIds[2] to 8,
@@ -63,7 +63,7 @@ internal class ReBalancingCalculatorTest {
     @Test
     fun node_instance_shutdown() {
         val reBalancingCalcResult = ReBalancingCalculator(
-            mapOf(
+            listOf(
                 orchestraClusterNodeIdOf() to 6,
                 orchestraClusterNodeIdOf() to 6,
                 orchestraClusterNodeIdOf() to 6,
@@ -83,7 +83,7 @@ internal class ReBalancingCalculatorTest {
     @Test
     fun event_shard_distribution() {
         val reBalancingCalcResult = ReBalancingCalculator(
-            mapOf(
+            listOf(
                 orchestraClusterNodeIdOf() to 9,
                 orchestraClusterNodeIdOf() to 9,
                 orchestraClusterNodeIdOf() to 9,
@@ -110,7 +110,7 @@ internal class ReBalancingCalculatorTest {
         val nodeWithFourConsumers = orchestraClusterNodeIdOf()
         val nodeWithTwoConsumers = orchestraClusterNodeIdOf()
         val reBalancingCalcResult = ReBalancingCalculator(
-            mapOf(
+            listOf(
                 nodeWithEightConsumers to 8,
                 nodeWithSixConsumers to 6,
                 nodeWithFourConsumers to 4,
@@ -161,7 +161,7 @@ internal class ReBalancingCalculatorTest {
         val nodeWithFourConsumers = orchestraClusterNodeIdOf()
         val nodeWithTwoConsumers = orchestraClusterNodeIdOf()
         val reBalancingCalcResult = ReBalancingCalculator(
-            mapOf(
+            listOf(
                 nodeWithEightConsumers to 8,
                 nodeWithSixConsumers to 6,
                 nodeWithFourConsumers to 4,
@@ -196,6 +196,57 @@ internal class ReBalancingCalculatorTest {
             }
             if (reBalancingEntry.nodeId == nodeWithTwoConsumers) {
                 reBalancingEntry.adjustment.shouldBe(4)
+                reBalancingEntry.nodeShouldStopConsumers().shouldBeFalse()
+                reBalancingEntry.nodeShouldStartConsumers().shouldBeTrue()
+                reBalancingEntry.noActionOnNode().shouldBeFalse()
+                checked++
+            }
+        }
+        checked.shouldBe(4)
+    }
+
+    @Test
+    fun uneven_distribution_merged_shards() {
+        val nodeOne = orchestraClusterNodeIdOf()
+        val nodeTwo = orchestraClusterNodeIdOf()
+        val nodeThree = orchestraClusterNodeIdOf()
+        val nodeFour = orchestraClusterNodeIdOf()
+        val reBalancingCalcResult = ReBalancingCalculator(
+            listOf(
+                nodeOne to 8,
+                nodeTwo to 8,
+                nodeThree to 8,
+                nodeFour to 6,
+            )
+        ).calculateReBalance(0)
+
+        var checked = 0
+        reBalancingCalcResult.needsReBalancing().shouldBeTrue()
+        reBalancingCalcResult.reBalancingNodeInfos.shouldHaveSize(4)
+        reBalancingCalcResult.reBalancingNodeInfos.forEach { reBalancingEntry ->
+            if (reBalancingEntry.nodeId == nodeOne) {
+                reBalancingEntry.adjustment.shouldBeZero()
+                reBalancingEntry.nodeShouldStopConsumers().shouldBeFalse()
+                reBalancingEntry.nodeShouldStartConsumers().shouldBeFalse()
+                reBalancingEntry.noActionOnNode().shouldBeTrue()
+                checked++
+            }
+            if (reBalancingEntry.nodeId == nodeTwo) {
+                reBalancingEntry.adjustment.shouldBeZero()
+                reBalancingEntry.nodeShouldStopConsumers().shouldBeFalse()
+                reBalancingEntry.nodeShouldStartConsumers().shouldBeFalse()
+                reBalancingEntry.noActionOnNode().shouldBeTrue()
+                checked++
+            }
+            if (reBalancingEntry.nodeId == nodeThree) {
+                reBalancingEntry.adjustment.shouldBe(-1)
+                reBalancingEntry.nodeShouldStopConsumers().shouldBeTrue()
+                reBalancingEntry.nodeShouldStartConsumers().shouldBeFalse()
+                reBalancingEntry.noActionOnNode().shouldBeFalse()
+                checked++
+            }
+            if (reBalancingEntry.nodeId == nodeFour) {
+                reBalancingEntry.adjustment.shouldBe(1)
                 reBalancingEntry.nodeShouldStopConsumers().shouldBeFalse()
                 reBalancingEntry.nodeShouldStartConsumers().shouldBeTrue()
                 reBalancingEntry.noActionOnNode().shouldBeFalse()

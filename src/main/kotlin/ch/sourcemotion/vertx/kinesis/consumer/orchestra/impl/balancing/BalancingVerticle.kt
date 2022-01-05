@@ -99,7 +99,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
             val nodeScores = nodeScoreService.getNodeScores().await()
             val consumableShardIds = consumableShardDetectionService.getConsumableShards().await()
             val reBalancingCalcResult =
-                ReBalancingCalculator(nodeScores.associate { it.clusterNodeId to it.score }).calculateReBalance(
+                ReBalancingCalculator(nodeScores.map { it.clusterNodeId to it.score }).calculateReBalance(
                     consumableShardIds.size
                 )
 
