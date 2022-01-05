@@ -189,8 +189,8 @@ data class VertxKinesisOrchestraOptions @JvmOverloads constructor(
         // Balancing
         const val DEFAULT_NODE_KEEP_ALIVE_MILLIS = 3000L
         const val DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS = 3000L
-        const val DEFAULT_INITIAL_BALANCING_DELAY_MILLIS = 3000L
-        const val DEFAULT_BALANCING_INTERVAL_MILLIS = 3000L
+        const val DEFAULT_INITIAL_BALANCING_DELAY_MILLIS = 1000L
+        const val DEFAULT_BALANCING_INTERVAL_MILLIS = 2000L
         const val DEFAULT_BALANCING_COMMAND_TIMEOUT_MILLIS = 30000L // Default event bus timeout
 
         const val DEFAULT_USE_SDK_NETTY_CLIENT = true
