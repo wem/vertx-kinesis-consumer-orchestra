@@ -34,6 +34,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
     private lateinit var consumableShardDetectionService: ConsumableShardDetectionService
 
     private var reBalancingInProgress = false
+    private var firstConsumerStart = true
 
     override suspend fun start() {
         options = config.mapTo(Options::class.java)
@@ -63,19 +64,11 @@ internal class BalancingVerticle : CoroutineVerticle() {
     }
 
     private fun onStopConsumerBalancingCmd(consumerCount: Int): Future<StopConsumersCmdResult> {
-        return consumerControlService.stopConsumers(consumerCount).compose { cmdResult ->
-            nodeScoreService.setThisNodeScore(cmdResult.activeConsumers).compose {
-                Future.succeededFuture(cmdResult)
-            }
-        }
+        return consumerControlService.stopConsumers(consumerCount)
     }
 
     private fun onStartConsumerBalancingCmd(shardIds: List<ShardId>): Future<Int> {
-        return consumerControlService.startConsumers(shardIds).compose { activeConsumers ->
-            nodeScoreService.setThisNodeScore(activeConsumers).compose {
-                Future.succeededFuture(activeConsumers)
-            }
-        }
+        return consumerControlService.startConsumers(shardIds)
     }
 
     private fun activeBalancerHandling() {
@@ -112,40 +105,23 @@ internal class BalancingVerticle : CoroutineVerticle() {
 
             if (reBalancingCalcResult.needsReBalancing()) {
                 logger.info { "Initiate re-balancing because of node scores $nodeScores and / or consumable shards $consumableShardIds on cluster ${options.clusterNodeId.clusterName}" }
+                // Filter nodes their score is enough high so on them no re-balancing will happen
                 val pendingReBalancingNodeInfos =
                     reBalancingCalcResult.reBalancingNodeInfos.filterNot { it.noActionOnNode() }
 
-                val nodeToStopConsumersOn = pendingReBalancingNodeInfos.filter { it.nodeShouldStopConsumers() }
-                val pendingConsumerStopJobs = nodeToStopConsumersOn.map { reBalancingNodeInfo ->
-                    val consumerCountToStop = reBalancingNodeInfo.adjustment * -1
-                    logger.info { "Will stop $consumerCountToStop consumers on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
-                    // This node instance?
-                    if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
-                        // We should not call consumer control directly, so node state get also updated
-                        onStopConsumerBalancingCmd(consumerCountToStop)
-                    } else {
-                        balancingNodeCommunication.sendStopConsumersCmd(reBalancingNodeInfo.nodeId, consumerCountToStop)
-                    }
-                }
+                val nodesToStopConsumersOn = pendingReBalancingNodeInfos.filter { it.nodeShouldStopConsumers() }
+                val pendingConsumerStopJobs = stopConsumersOnNodes(nodesToStopConsumersOn)
 
                 // Available shards are the stopped ones on nodes and the additional, consumable
                 val stoppedShardIds = pendingConsumerStopJobs.map { it.await() }.map { it.stoppedShardIds }.flatten()
-                logger.info { "Stopped shards $stoppedShardIds during re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+                if (stoppedShardIds.isNotEmpty()) {
+                    logger.info { "Stopped shards $stoppedShardIds during re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+                }
                 val availableShardIds = (stoppedShardIds + consumableShardIds).toMutableList()
 
                 val nodesToStartConsumersOn = pendingReBalancingNodeInfos.filter { it.nodeShouldStartConsumers() }
-                val pendingConsumerStartJobs = nodesToStartConsumersOn.map { reBalancingNodeInfo ->
-                    val shardIdsToStart = availableShardIds.takeAndRemove(reBalancingNodeInfo.adjustment)
-                    logger.info { "Will start consumers for $shardIdsToStart on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
-
-                    // This node instance?
-                    if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
-                        // We should not call consumer control directly, so node state get also updated
-                        onStartConsumerBalancingCmd(shardIdsToStart)
-                    } else {
-                        balancingNodeCommunication.sendStartConsumersCmd(reBalancingNodeInfo.nodeId, shardIdsToStart)
-                    }
-                }
+                val pendingConsumerStartJobs =
+                    startConsumersOnNodes(nodesToStartConsumersOn, availableShardIds)
                 CompositeFuture.all(pendingConsumerStartJobs).await()
 
                 if (availableShardIds.isNotEmpty()) {
@@ -160,6 +136,44 @@ internal class BalancingVerticle : CoroutineVerticle() {
             }
         }
     }
+
+    private suspend fun startConsumersOnNodes(
+        nodesToStartConsumersOn: List<ReBalancingNodeInfo>,
+        availableShardIds: MutableList<ShardId>
+    ) = nodesToStartConsumersOn.mapIndexed { idx, reBalancingNodeInfo ->
+        val shardIdsToStart = availableShardIds.takeAndRemove(reBalancingNodeInfo.adjustment)
+        logger.info { "Will start consumers for $shardIdsToStart on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+
+        // This node instance?
+        val future = if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
+            // We should not call consumer control directly, so node state get also updated
+            onStartConsumerBalancingCmd(shardIdsToStart)
+        } else {
+            balancingNodeCommunication.sendStartConsumersCmd(reBalancingNodeInfo.nodeId, shardIdsToStart)
+        }
+        // If it's the first balancing where consumer are started, we wait until the first node is done.
+        // This because otherwise and in the case of the enhanced fan out parallel consumer registration could happen
+        // which could probably fail
+        if (firstConsumerStart && idx == 0) {
+            future.await()
+            firstConsumerStart = false
+        }
+        future
+    }
+
+    private fun stopConsumersOnNodes(nodeToStopConsumersOn: List<ReBalancingNodeInfo>) =
+        nodeToStopConsumersOn.map { reBalancingNodeInfo ->
+            val consumerCountToStop =
+                reBalancingNodeInfo.adjustment * -1 // Negative adjustment means consumer have to get stopped on that node
+            logger.info { "Will stop $consumerCountToStop consumers on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+            // This node instance?
+            if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
+                // We should not call consumer control directly, so node state get also updated
+                onStopConsumerBalancingCmd(consumerCountToStop)
+            } else {
+                balancingNodeCommunication.sendStopConsumersCmd(reBalancingNodeInfo.nodeId, consumerCountToStop)
+            }
+        }
 
     private fun tryBecomeOrKeepActiveBalancer(alreadyActiveBalancer: Boolean): Future<Boolean> {
         val cmd = Request.cmd(Command.SET).apply {
