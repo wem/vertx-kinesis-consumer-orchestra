@@ -4,6 +4,8 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.NodeScoreDto
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.NodeScoreService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_APPLICATION_NAME
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.TEST_STREAM_NAME
@@ -13,6 +15,7 @@ import io.kotest.matchers.ints.shouldBeZero
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.vertx.core.AbstractVerticle
+import io.vertx.core.Future
 import io.vertx.core.Verticle
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
@@ -224,7 +227,16 @@ internal class ConsumerControlVerticleTest : AbstractRedisTest() {
         options: ConsumerControlVerticle.Options
     ): ConsumerControlService {
         deployTestVerticle<ConsumerControlVerticle>(options)
+        deployNodeScoreService()
         return ConsumerControlService.createService(vertx)
+    }
+
+    private suspend fun deployNodeScoreService() {
+        NodeScoreService.exposeService(vertx, object : NodeScoreService {
+            override fun setThisNodeScore(score: Int): Future<Void> = Future.succeededFuture()
+
+            override fun getNodeScores(): Future<List<NodeScoreDto>> = Future.succeededFuture(emptyList())
+        }).await()
     }
 
     private fun consumerControlOptionsOf(

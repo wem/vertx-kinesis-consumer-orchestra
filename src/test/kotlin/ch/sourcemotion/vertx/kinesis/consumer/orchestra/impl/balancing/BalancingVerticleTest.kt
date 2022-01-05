@@ -119,6 +119,8 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
             val stopConsumersCheckpoint = testContext.checkpoint()
             val detectConsumableShardsCheckpoint = testContext.checkpoint()
 
+            val nodeScoreService = deployNodeStateService(firstNodeBalancerOptions.clusterNodeId)
+
             ConsumerControlService.exposeService(vertx, object : ConsumerControlService {
                 private var consumerStarts = 0
 
@@ -151,6 +153,7 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
                         } else {
                             shardsToBalance.shouldContainExactly(shardsToBalance)
                         }
+                        nodeScoreService.setThisNodeScore(shardIds.size)
                     }
                     startConsumersCheckpoint.flag()
                     return Future.succeededFuture(shardIds.size)
@@ -169,7 +172,6 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
                 }
             })
 
-            deployNodeStateService(firstNodeBalancerOptions.clusterNodeId)
             deployBalancingVerticle(firstNodeBalancerOptions)
 
             checkpoint.flag()
@@ -322,13 +324,13 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
         expectedInstances: Int,
         clusterName: String,
         sharedConsumableShardDetection: SharedConsumableShardDetectionService
-    ) = (startVertxInstances(expectedInstances)).mapIndexed { idx, additionalVertx ->
+    ) = (startVertxInstances(expectedInstances)).map { additionalVertx ->
         val nodeId = OrchestraClusterNodeId(clusterName, "${UUID.randomUUID()}")
         val verticleOptions = verticleOptionsOf(nodeId)
 
-        deployNodeStateService(nodeId, additionalVertx)
+        val nodeScoreService = deployNodeStateService(nodeId, additionalVertx)
 
-        val consumerControlService = TestConsumerControlService(sharedConsumableShardDetection)
+        val consumerControlService = TestConsumerControlService(sharedConsumableShardDetection, nodeScoreService)
         ConsumerControlService.exposeService(
             additionalVertx,
             consumerControlService
@@ -351,12 +353,13 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
         nodeId: OrchestraClusterNodeId,
         vertx: Vertx = this.vertx,
         nodeKeepAliveMillis: Long = DEFAULT_NODE_KEEP_ALIVE_MILLIS,
-    ): String {
+    ): NodeScoreService {
         val options = RedisNodeScoreVerticle.Options(nodeId, redisHeimdallOptions, nodeKeepAliveMillis)
-        return vertx.deployVerticle(
+        vertx.deployVerticle(
             RedisNodeScoreVerticle::class.java,
             deploymentOptionsOf(config = JsonObject.mapFrom(options))
         ).await()
+        return NodeScoreService.createService(vertx)
     }
 
     private suspend fun verifyActiveNode(nodeId: OrchestraClusterNodeId) {
@@ -403,7 +406,8 @@ private class SharedConsumableShardDetectionService(allShardIds: List<ShardId>) 
 }
 
 private class TestConsumerControlService(
-    private val consumableDetection: SharedConsumableShardDetectionService
+    private val consumableDetection: SharedConsumableShardDetectionService,
+    private val nodeScoreService: NodeScoreService
 ) : ConsumerControlService {
     val activeConsumedShards = ArrayList<ShardId>()
 
@@ -412,24 +416,15 @@ private class TestConsumerControlService(
     override fun stopConsumers(consumerCount: Int): Future<StopConsumersCmdResult> {
         val stoppedShardIds = activeConsumedShards.takeAndRemove(consumerCount)
         consumableDetection.noMoreConsumed(stoppedShardIds)
-        return Future.succeededFuture(StopConsumersCmdResult(stoppedShardIds, activeConsumedShards.size))
+        return nodeScoreService.setThisNodeScore(activeConsumedShards.size)
+            .compose { Future.succeededFuture(StopConsumersCmdResult(stoppedShardIds, activeConsumedShards.size)) }
     }
 
     override fun startConsumers(shardIds: List<ShardId>): Future<Int> {
         activeConsumedShards.addAll(shardIds)
         consumableDetection.nowConsumed(shardIds)
-        return Future.succeededFuture(activeConsumedShards.size)
-    }
-}
-
-
-private class DetectOnceConsumableShardDetectionService(shardsToDetect: List<ShardId>) :
-    ConsumableShardDetectionService {
-    private val pendingShardsToDetect = shardsToDetect.toMutableList()
-    override fun getConsumableShards(): Future<List<ShardId>> {
-        // We detect all shards at once at consumable
-        val detectedShards = pendingShardsToDetect.takeAndRemove(pendingShardsToDetect.size)
-        return Future.succeededFuture(detectedShards)
+        return nodeScoreService.setThisNodeScore(activeConsumedShards.size)
+            .compose { Future.succeededFuture(activeConsumedShards.size) }
     }
 }
 

@@ -6,11 +6,13 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.ShardIteratorStrategy
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.KinesisConsumerVerticleOptions
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumerControlService
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.NodeScoreService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumersCmdResult
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceAsync
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.spi.ShardStatePersistenceServiceFactory
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
+import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.core.Promise
 import io.vertx.core.json.JsonObject
@@ -29,21 +31,32 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
     private val deployedConsumers = ArrayList<DeployedConsumer>()
     private lateinit var options: Options
     private lateinit var shardStatePersistenceService: ShardStatePersistenceServiceAsync
+    private lateinit var nodeScoreService: NodeScoreService
 
     override suspend fun start() {
         options = config.mapTo(Options::class.java)
         shardStatePersistenceService =
             ShardStatePersistenceServiceFactory.createAsyncShardStatePersistenceService(vertx)
+        nodeScoreService = NodeScoreService.createService(vertx)
         ConsumerControlService.exposeService(vertx, this)
+    }
+
+    override suspend fun stop() {
+        runCatching {
+            CompositeFuture.all(deployedConsumers.map {  vertx.undeploy(it.deploymentId) }).await()
+        }
     }
 
     override fun stopConsumer(shardId: ShardId): Future<Void> {
         val consumerToStop = deployedConsumers.firstOrNull { it.shardId == shardId }
         return if (consumerToStop != null) {
             vertx.undeploy(consumerToStop.deploymentId)
-                .onSuccess { deployedConsumers.remove(consumerToStop) }
                 .onFailure { cause -> logger.warn(cause) { "Failed to undeploy consumer of shard ${consumerToStop.shardId}" } }
-                .compose { Future.succeededFuture() }
+                .onComplete {
+                    deployedConsumers.remove(consumerToStop)
+                    nodeScoreService.setThisNodeScore(deployedConsumers.size)
+                        .onComplete { Future.succeededFuture<Void>() }
+                }
         } else Future.succeededFuture()
     }
 
@@ -62,7 +75,9 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
                     deployedConsumers.remove(consumerToStop)
                 }
             }
-            p.complete(StopConsumersCmdResult(consumersToStop.map { it.shardId }, deployedConsumers.size))
+            nodeScoreService.setThisNodeScore(deployedConsumers.size).onComplete {
+                p.complete(StopConsumersCmdResult(consumersToStop.map { it.shardId }, deployedConsumers.size))
+            }
         }
 
         return p.future()
@@ -92,7 +107,9 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
                     logger.warn(e) { "Failed to deploy consumer of shard $shardIdToStartConsumer" }
                 }
             }
-            p.complete(deployedConsumers.size)
+            nodeScoreService.setThisNodeScore(deployedConsumers.size).onComplete {
+                p.complete(deployedConsumers.size)
+            }
         }
         return p.future()
     }
