@@ -57,6 +57,7 @@ internal class VertxKinesisOrchestraImpl(
             if (options.useCustomShardStatePersistenceService.not()) {
                 deployDefaultShardStatePersistence()
             }
+            deployNodeScoreVerticle(clusterNodeId)
 
             val kclV1ImportOptions = options.kclV1ImportOptions
             if (kclV1ImportOptions.isNotNull()) {
@@ -68,7 +69,6 @@ internal class VertxKinesisOrchestraImpl(
 
             deployConsumerControlVerticle()
 
-            deployNodeScoreVerticle(clusterNodeId)
             deployBalancingVerticle(clusterNodeId)
 
             scheduleLastDefenseClose()
