@@ -4,6 +4,7 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.consumer.AbstractKinesis
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.codec.LocalCodec
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.completion
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.streamDescriptionWhenActiveAwait
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.NodeScoreService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import io.kotest.matchers.shouldBe
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import software.amazon.awssdk.services.kinesis.model.Record
+import software.amazon.awssdk.services.kinesis.model.Shard
 import software.amazon.awssdk.services.kinesis.model.StreamDescription
 import java.util.concurrent.TimeUnit
 
@@ -26,7 +28,6 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
         const val RECORD_FAN_OUT_ADDR = "/kinesis/consumer/orchestra/fan-out"
         const val PARAMETER_VALUE = "consumer-parameter"
         const val RECORD_COUNT = 100
-        const val NOT_CONSUMED_SHARD_DETECTION_INTERVAL = 500L
     }
 
     private var orchestra: VertxKinesisOrchestra? = null
@@ -51,72 +52,88 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
             testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
         }.completion().await()
 
-        delay(10000)
+        val nodeScoreService = NodeScoreService.createService(vertx)
+        nodeScoreService.awaitScore(1)
+
         kinesisClient.putRecords(1 batchesOf RECORD_COUNT)
     }
 
-    @Timeout(value = 240, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 2, timeUnit = TimeUnit.MINUTES)
     @Test
-    internal fun split_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 12) { checkpoint ->
-        var receivedRecords = 0
-        eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
-            val fanoutMessage = msg.body()
-            receivedRecords += fanoutMessage.recordCount
-            repeat(fanoutMessage.recordCount) { checkpoint.flag() }
-            testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-        }.completion().await()
+    internal fun split_resharding(testContext: VertxTestContext) {
+        val initialShardCount = 4
+        val splitShardCount = initialShardCount * 2
 
-        val streamDescriptionBeforeSplit = createStreamAndDeployVKCO(4, 8)
+        testContext.async(RECORD_COUNT * (initialShardCount + splitShardCount)) { checkpoint ->
+            eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
+                val fanoutMessage = msg.body()
+                testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
+                repeat(fanoutMessage.recordCount) { checkpoint.flag() }
+            }.completion().await()
 
-        delay(40000)
+            val nodeScoreService = NodeScoreService.createService(vertx)
+            val streamDescriptionBeforeSplit = createStreamAndDeployVKCO(initialShardCount)
 
-        val parentShards = streamDescriptionBeforeSplit.shards()
-        kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+            nodeScoreService.awaitScore(initialShardCount)
 
-        parentShards.forEach { parentShard ->
-            kinesisClient.splitShardFair(parentShard)
-            delay(40000) // We have to wait until parent parentShard get really closed
-            val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
-            val childShards = streamDescriptionAfterSplit.shards().filter { it.parentShardId() == parentShard.shardId() }
+            val parentShards = streamDescriptionBeforeSplit.shards()
+            kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+
+            val childShards = parentShards.map { parentShard ->
+                kinesisClient.splitShardFair(parentShard)
+                val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+                streamDescriptionAfterSplit.shards().filter { it.parentShardId() == parentShard.shardId() }.also {
+                    logger.info { "Split of parentShard ${parentShard.shardId()} done" }
+                }
+            }.flatten()
+
+            nodeScoreService.awaitScore(splitShardCount)
+
             kinesisClient.putRecordsExplicitHashKey(childShards.size batchesOf RECORD_COUNT, predefinedShards = childShards)
-            logger.info { "Split of parentShard ${parentShard.shardId()} done" }
         }
     }
 
-    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 2, timeUnit = TimeUnit.MINUTES)
     @Test
-    internal fun merge_resharding(testContext: VertxTestContext) = testContext.async(RECORD_COUNT * 6) { checkpoint ->
-        var receivedRecords = 0
-        eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
-            val fanoutMessage = msg.body()
-            receivedRecords += fanoutMessage.recordCount
-            repeat(fanoutMessage.recordCount) { checkpoint.flag() }
-            testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
-        }.completion().await()
+    internal fun merge_resharding(testContext: VertxTestContext) {
+        val initialShardCount = 4
+        val mergedShardCount = initialShardCount / 2
+        testContext.async(RECORD_COUNT * (initialShardCount + mergedShardCount)) { checkpoint ->
+            eventBus.consumer<FanoutMessage>(RECORD_FAN_OUT_ADDR) { msg ->
+                val fanoutMessage = msg.body()
+                testContext.verify { fanoutMessage.parameter.shouldBe(PARAMETER_VALUE) }
+                repeat(fanoutMessage.recordCount) { checkpoint.flag() }
+            }.completion().await()
 
-        val streamDescriptionBeforeMerge = createStreamAndDeployVKCO(4, 4)
+            val nodeScoreService = NodeScoreService.createService(vertx)
+            val streamDescriptionBeforeMerge = createStreamAndDeployVKCO(initialShardCount)
 
-        delay(20000)
+            val parentShards = streamDescriptionBeforeMerge.shards()
+            nodeScoreService.awaitScore(parentShards.size)
 
-        val parentShards = streamDescriptionBeforeMerge.shards()
-        kinesisClient.putRecordsExplicitHashKey(4 batchesOf RECORD_COUNT, predefinedShards = parentShards)
+            kinesisClient.putRecordsExplicitHashKey(initialShardCount batchesOf RECORD_COUNT, predefinedShards = parentShards)
 
-        val shards = parentShards.iterator()
-        while (shards.hasNext()) {
-            val parent = shards.next()
-            val adjacentParent = shards.next()
-            kinesisClient.mergeShards(parent, adjacentParent)
-            delay(20000) // We have to wait until parent shard get really closed
-            val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
-            val childShard = streamDescriptionAfterSplit.shards()
-                .first { it.parentShardId() == parent.shardId() && it.adjacentParentShardId() == adjacentParent.shardId() }
-            kinesisClient.putRecordsExplicitHashKey(1 batchesOf RECORD_COUNT, predefinedShards = listOf(childShard))
+            val shards = parentShards.iterator()
+            val childShards = ArrayList<Shard>()
+            while (shards.hasNext()) {
+                val parent = shards.next()
+                val adjacentParent = shards.next()
+                kinesisClient.mergeShards(parent, adjacentParent)
+                val streamDescriptionAfterSplit = kinesisClient.streamDescriptionWhenActiveAwait(TEST_STREAM_NAME)
+                val childShard = streamDescriptionAfterSplit.shards()
+                    .first { it.parentShardId() == parent.shardId() && it.adjacentParentShardId() == adjacentParent.shardId() }
+                childShards.add(childShard)
 
-            logger.info { "Merge of shards ${parent.shardId()} / ${adjacentParent.shardId()} done" }
+                logger.info { "Merge of shards ${parent.shardId()} / ${adjacentParent.shardId()} done" }
+            }
+
+            nodeScoreService.awaitScore(mergedShardCount)
+            delay(30000) // Because of some reason, the hash key range could change for some time after merge
+            kinesisClient.putRecordsExplicitHashKey( mergedShardCount batchesOf RECORD_COUNT, predefinedShards = childShards)
         }
     }
 
-    private suspend fun createStreamAndDeployVKCO(shardCount: Int = 1, consumerCount: Int = 1): StreamDescription {
+    private suspend fun createStreamAndDeployVKCO(shardCount: Int = 1): StreamDescription {
         val streamDescription = kinesisClient.createAndGetStreamDescriptionWhenActive(shardCount)
         val orchestraOptions = VertxKinesisOrchestraOptions(
             applicationName = TEST_APPLICATION_NAME,
@@ -134,6 +151,14 @@ internal abstract class AbstractComponentTest : AbstractKinesisAndRedisTest(fals
     }
 
     protected abstract fun fetcherOptions(streamDescription: StreamDescription): FetcherOptions
+
+    private suspend fun NodeScoreService.awaitScore(expectedScore : Int) {
+        var expectedScoreReached = false
+        while (!expectedScoreReached) {
+            expectedScoreReached = getNodeScores().await().sumOf { it.score } == expectedScore
+            delay(1000)
+        }
+    }
 }
 
 data class FanoutMessage(val recordCount: Int, val parameter: String)
