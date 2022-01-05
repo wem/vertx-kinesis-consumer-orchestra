@@ -91,3 +91,16 @@ All fixes from Vert.x 3 version applied until and with version 0.0.9.6.
 All features from Vert.x 3 version applied until and with version 0.0.9.6.
 ### Improved
 All improvements from Vert.x 3 version applied until and with version 0.0.9.6.
+
+## [2.0.0]
+### Improved
+#### Balancing (shard distribution between nodes)
+This is major update of a basic behavior. Before 2.x you need to configure how many shards could be consumed on each node.
+That behavior is replaced from now with a dynamic approach, so the shard distribution between node would be even / fair as possible.
+Re-balancing will also happen, so if a node will go down or the stream got resharded a re-balancing will be executed.
+
+Please check the ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.balancing options.
+Also, each node needs a unique identifier from now which will be a UUID by default, please check ch.sourcemotion.vertx.kinesis.consumer.orchestra.VertxKinesisOrchestraOptions.nodeId. 
+
+#### Cleanup
+- Remove unused code.
