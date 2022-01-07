@@ -1,9 +1,11 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.owasp.dependencycheck.gradle.extension.AnalyzerExtension
 
 plugins {
     kotlin("jvm") version "1.6.10"
     kotlin("kapt") version "1.6.10"
-    id("org.jetbrains.dokka") version "1.6.0"
+    id("org.jetbrains.dokka") version "1.6.10"
+    id("org.owasp.dependencycheck") version "6.5.2.1"
     `maven-publish`
     signing
 }
@@ -96,6 +98,15 @@ abstract class DependencyExclusion(private val dependencies: Map<String, List<St
 fun vertx(module: String) = "io.vertx:$module"
 fun awsSdk(module: String) = "software.amazon.awssdk:$module"
 fun libVersion(suffix: String) = property("version.$suffix")
+
+dependencyCheck {
+    failBuildOnCVSS = 7.0F // High and higher
+    autoUpdate = true
+    analyzers(closureOf<AnalyzerExtension> {
+        assemblyEnabled = false
+    })
+    skipConfigurations.addAll(configurations.filter { it.name.contains("dokka") }.map { it.name })
+}
 
 tasks {
     withType<KotlinCompile> {
