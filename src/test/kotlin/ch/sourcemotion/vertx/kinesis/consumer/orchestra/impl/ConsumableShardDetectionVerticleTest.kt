@@ -3,9 +3,11 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.shardIdTyped
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.ConsumableShardDetectionService
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.*
+import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.collections.shouldBeEmpty
 import io.kotest.matchers.collections.shouldContainExactly
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
+import io.vertx.core.eventbus.ReplyException
 import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.coroutines.await
@@ -32,6 +34,12 @@ internal class ConsumableShardDetectionVerticleTest : AbstractKinesisAndRedisTes
 
         val consumableShardDetectionService = deployConsumableShardDetectorVerticle()
         consumableShardDetectionService.getConsumableShards().await().shouldContainExactlyInAnyOrder(consumableShardIds)
+    }
+
+    @Test
+    internal fun consumable_shards_not_existing_stream(tc: VertxTestContext) = tc.async {
+        val consumableShardDetectionService = deployConsumableShardDetectorVerticle()
+        shouldThrow<ReplyException> { consumableShardDetectionService.getConsumableShards().await() }
     }
 
     @Test
