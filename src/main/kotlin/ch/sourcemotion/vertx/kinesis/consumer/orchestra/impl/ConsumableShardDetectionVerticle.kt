@@ -37,7 +37,7 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle(), Consumabl
     override fun getConsumableShards(): Future<List<ShardId>> {
         val p = Promise.promise<List<ShardId>>()
         launch {
-            val existingShards = kinesisClient.listShardsSafe(options.clusterName.streamName)
+            val existingShards = kinesisClient.listShardsRateLimitingAware(options.clusterName.streamName)
             val existingShardIds = existingShards.map { it.shardIdTyped() }
             val finishedShardIdsAsync = async { shardStatePersistence.getFinishedShardIds(existingShardIds) }
             val shardIdsInProgressAsync = async { shardStatePersistence.getShardIdsInProgress(existingShardIds) }
@@ -54,6 +54,10 @@ internal class ConsumableShardDetectionVerticle : CoroutineVerticle(), Consumabl
                 finishedShardIds
             )
             p.complete(consumableShardIds)
+        }.invokeOnCompletion { cause ->
+            if (cause != null) {
+                p.fail(cause)
+            }
         }
         return p.future()
     }

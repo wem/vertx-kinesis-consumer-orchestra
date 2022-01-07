@@ -16,23 +16,25 @@ internal suspend fun KinesisAsyncClient.streamDescriptionWhenActiveAwait(streamN
         description = runCatching { streamDescriptionAwait(streamName) }.getOrElse {
             if (it is LimitExceededException) {
                 delay(300)
+                null
+            } else {
+                throw it
             }
-            delay(10)
-            null
         }
     }
     return description
 }
 
-internal suspend fun KinesisAsyncClient.listShardsSafe(streamName: String): List<Shard> {
+internal suspend fun KinesisAsyncClient.listShardsRateLimitingAware(streamName: String): List<Shard> {
     var shards: List<Shard>? = null
     while (shards == null) {
         shards = runCatching { listShards { it.streamName(streamName) }.await().shards() }.getOrElse {
             if (it is LimitExceededException) {
                 delay(100)
+                null
+            } else {
+                throw it
             }
-            delay(10)
-            null
         }
     }
     return shards
