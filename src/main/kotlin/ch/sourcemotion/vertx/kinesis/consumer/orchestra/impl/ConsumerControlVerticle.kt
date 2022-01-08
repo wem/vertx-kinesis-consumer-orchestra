@@ -43,20 +43,25 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
 
     override suspend fun stop() {
         runCatching {
-            CompositeFuture.all(deployedConsumers.map {  vertx.undeploy(it.deploymentId) }).await()
+            CompositeFuture.all(deployedConsumers.map { vertx.undeploy(it.deploymentId) }).await()
         }
     }
 
     override fun stopConsumer(shardId: ShardId): Future<Void> {
         val consumerToStop = deployedConsumers.firstOrNull { it.shardId == shardId }
         return if (consumerToStop != null) {
+            val p = Promise.promise<Void>()
             vertx.undeploy(consumerToStop.deploymentId)
                 .onFailure { cause -> logger.warn(cause) { "Failed to undeploy consumer of shard ${consumerToStop.shardId}" } }
                 .onComplete {
+                    // Remove stopped consumer from deployed list in any case, as if the undeploy did fail
+                    // the consumer will be in an invalid state anyways
                     deployedConsumers.remove(consumerToStop)
                     nodeScoreService.setThisNodeScore(deployedConsumers.size)
-                        .onComplete { Future.succeededFuture<Void>() }
+                        .onSuccess { p.complete() }
+                        .onFailure { p.fail(it) }
                 }
+            p.future()
         } else Future.succeededFuture()
     }
 
@@ -75,9 +80,9 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
                     deployedConsumers.remove(consumerToStop)
                 }
             }
-            nodeScoreService.setThisNodeScore(deployedConsumers.size).onComplete {
-                p.complete(StopConsumersCmdResult(consumersToStop.map { it.shardId }, deployedConsumers.size))
-            }
+            nodeScoreService.setThisNodeScore(deployedConsumers.size)
+                .onSuccess { p.complete(StopConsumersCmdResult(consumersToStop.map { it.shardId }, deployedConsumers.size)) }
+                .onFailure { p.fail(it) }
         }
 
         return p.future()
@@ -107,9 +112,9 @@ internal class ConsumerControlVerticle : CoroutineVerticle(), ConsumerControlSer
                     logger.warn(e) { "Failed to deploy consumer of shard $shardIdToStartConsumer" }
                 }
             }
-            nodeScoreService.setThisNodeScore(deployedConsumers.size).onComplete {
-                p.complete(deployedConsumers.size)
-            }
+            nodeScoreService.setThisNodeScore(deployedConsumers.size)
+                .onFailure { p.fail(it) }
+                .onSuccess { p.complete(deployedConsumers.size) }
         }
         return p.future()
     }

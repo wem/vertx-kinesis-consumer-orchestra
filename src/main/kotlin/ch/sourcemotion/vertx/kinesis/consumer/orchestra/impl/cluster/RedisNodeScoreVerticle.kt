@@ -43,15 +43,21 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
 
     override fun setThisNodeScore(score: Int): Future<Void> = redis.send(
         Request.cmd(Command.ZADD).arg(nodeStateScoreSetName).arg(score).arg("${options.clusterNodeId}")
-    ).compose {
-        logger.info { "Score of node ${options.clusterNodeId} updated to $score" }
-        Future.succeededFuture()
-    }
+    ).onFailure { cause -> logger.warn(cause) { "Failed to set node score of node ${options.clusterNodeId}" } }
+        .compose {
+            logger.info { "Score of node ${options.clusterNodeId} updated to $score" }
+            Future.succeededFuture()
+        }
 
     override fun getNodeScores(): Future<List<NodeScoreDto>> {
         val p = Promise.promise<List<NodeScoreDto>>()
         launch {
-            p.complete(cleanAndGetScoresAliveNodes())
+            try {
+                p.complete(cleanAndGetScoresAliveNodes())
+            } catch (e: Exception) {
+                logger.warn(e) { "Failed to get node scores" }
+                p.fail(e)
+            }
         }
         return p.future()
     }
