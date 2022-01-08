@@ -104,3 +104,15 @@ Also, each node needs a unique identifier from now which will be a UUID by defau
 
 #### Cleanup
 - Remove unused code.
+
+## [2.0.1]
+### Improvement
+#### OWASP dependency check
+Integrate OWASP dependency check Gradle plugin
+#### Logging
+On some cluster actions, the logging is improved. E.g. on node score update failures.
+### Fixed
+#### Jackson version
+Adjust Jackson version according Vert.x to 2.13.1. 
+#### Exception hiding on Kinesis access
+Some errors during Kinesis access was hidden, e.g. on detection of not consumed shards. This behavior is fixed now. 
