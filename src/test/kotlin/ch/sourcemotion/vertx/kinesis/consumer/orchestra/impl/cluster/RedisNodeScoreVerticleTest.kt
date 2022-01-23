@@ -12,6 +12,8 @@ import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deploymentOptionsOf
 import io.vertx.kotlin.coroutines.await
+import io.vertx.redis.client.Command
+import io.vertx.redis.client.Request
 import org.junit.jupiter.api.Test
 import java.util.*
 
@@ -78,6 +80,40 @@ internal class RedisNodeScoreVerticleTest : AbstractRedisTest() {
         val thisNodeScore = nodeScores.shouldHaveSize(1).first()
         thisNodeScore.score.shouldBe(expectedScore)
         thisNodeScore.clusterNodeId.shouldBe(nodeId)
+    }
+
+    @Test
+    internal fun cleanup_unhealthy_node_scores_even_score(testContext: VertxTestContext) = testContext.async {
+        val (_, nodeId) = deployNodeScoreVerticle()
+        val nodeScoreService = NodeScoreService.createService(vertx)
+        val nodeScoreSetName = "${nodeId.clusterName}-node-scores"
+
+        // We add a score of some nodes for them the keep alive state is missing
+        repeat(10) {
+            val otherNodeId = OrchestraClusterNodeId(nodeId.clusterName, "${UUID.randomUUID()}")
+            redisClient.send(Request.cmd(Command.ZADD).arg(nodeScoreSetName).arg("0").arg("$otherNodeId"))
+        }
+
+        val nodeScore = nodeScoreService.getNodeScores().await().shouldHaveSize(1).first()
+        nodeScore.clusterNodeId.shouldBe(nodeId)
+        nodeScore.score.shouldBe(0)
+    }
+
+    @Test
+    internal fun cleanup_unhealthy_node_scores_uneven_score(testContext: VertxTestContext) = testContext.async {
+        val (_, nodeId) = deployNodeScoreVerticle()
+        val nodeScoreService = NodeScoreService.createService(vertx)
+        val nodeScoreSetName = "${nodeId.clusterName}-node-scores"
+
+        // We add a score of some nodes for them the keep alive state is missing
+        repeat(10) {
+            val otherNodeId = OrchestraClusterNodeId(nodeId.clusterName, "${UUID.randomUUID()}")
+            redisClient.send(Request.cmd(Command.ZADD).arg(nodeScoreSetName).arg("$it").arg("$otherNodeId"))
+        }
+
+        val nodeScore = nodeScoreService.getNodeScores().await().shouldHaveSize(1).first()
+        nodeScore.clusterNodeId.shouldBe(nodeId)
+        nodeScore.score.shouldBe(0)
     }
 
     private suspend fun deployNodeScoreVerticle(
