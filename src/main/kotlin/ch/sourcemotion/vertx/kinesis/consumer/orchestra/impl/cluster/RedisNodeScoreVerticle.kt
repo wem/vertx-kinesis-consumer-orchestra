@@ -25,6 +25,9 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
     private lateinit var redis: Redis
     private lateinit var nodeStateScoreSetName: String
 
+    // If ths update of this nodes score did fail, we will retry later, beside keep alive
+    private var thisScoreDrift: Int? = null
+
     override suspend fun start() {
         options = config.mapTo(Options::class.java)
         redis = RedisHeimdallLight(vertx, options.redisOptions)
@@ -38,16 +41,23 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
 
     override suspend fun stop() {
         nodeAliveStateRefresherId?.let { vertx.cancelTimer(it) }
-        runCatching { CompositeFuture.all(removeNodeScoresOf(listOf(options.clusterNodeId)), removeThisNodeAliveState()).await() }
+        runCatching {
+            CompositeFuture.all(removeNodeScoresOf(listOf(options.clusterNodeId)), removeThisNodeAliveState()).await()
+        }
     }
 
-    override fun setThisNodeScore(score: Int): Future<Void> = redis.send(
-        Request.cmd(Command.ZADD).arg(nodeStateScoreSetName).arg(score).arg("${options.clusterNodeId}")
-    ).onFailure { cause -> logger.warn(cause) { "Failed to set node score of node ${options.clusterNodeId}" } }
-        .compose {
+    override fun setThisNodeScore(score: Int): Future<Void> {
+        thisScoreDrift = null
+        return redis.send(
+            Request.cmd(Command.ZADD).arg(nodeStateScoreSetName).arg(score).arg("${options.clusterNodeId}")
+        ).onFailure { cause ->
+            thisScoreDrift = score
+            logger.warn(cause) { "Failed to set score of node ${options.clusterNodeId}" }
+        }.compose {
             logger.info { "Score of node ${options.clusterNodeId} updated to $score" }
             Future.succeededFuture()
         }
+    }
 
     override fun getNodeScores(): Future<List<NodeScoreDto>> {
         val p = Promise.promise<List<NodeScoreDto>>()
@@ -68,6 +78,12 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
         redis.send(cmd)
         nodeAliveStateRefresherId = vertx.setPeriodic(options.nodeKeepAliveMillis / 3) {
             redis.send(cmd)
+                .onFailure { cause -> logger.warn(cause) { "Failed to set score alive state of node ${options.clusterNodeId}" } }
+            // Self-healing if the previous score set command of this node did fail
+            val scoreDrift = thisScoreDrift
+            if (scoreDrift != null) {
+                setThisNodeScore(scoreDrift)
+            }
         }
     }
 
