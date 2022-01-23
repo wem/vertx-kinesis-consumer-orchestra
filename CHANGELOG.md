@@ -115,4 +115,18 @@ On some cluster actions, the logging is improved. E.g. on node score update fail
 #### Jackson version
 Adjust Jackson version according Vert.x to 2.13.1. 
 #### Exception hiding on Kinesis access
-Some errors during Kinesis access was hidden, e.g. on detection of not consumed shards. This behavior is fixed now. 
+Some errors during Kinesis access was hidden, e.g. on detection of not consumed shards. This behavior is fixed now.
+
+## [2.1.0]
+### Feature
+Connection issues against Redis and during node score update has now self-healing. Means if the score couldn't get updated, the score will updated later, when the
+connection was established again and the score value is still actual.
+### Maintenance
+Versions bumped:
+- Kotlin Coroutines: 1.6.0
+- Vert.x: 4.2.4
+- AWS SDK: 2.17.116
+- Redis Heimdall: 1.2.2
+- Gradle: 7.3.3
+### Improvement
+Add node scoring tests for cleanup unhealthy nodes.
