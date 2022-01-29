@@ -130,3 +130,7 @@ Versions bumped:
 - Gradle: 7.3.3
 ### Improvement
 Add node scoring tests for cleanup unhealthy nodes.
+
+## [2.2.0]
+### Improvement
+Redis 6 support. Additional Gradle test task for Redis 6. 
