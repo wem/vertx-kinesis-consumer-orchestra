@@ -5,11 +5,9 @@ import org.testcontainers.containers.Network
 
 class KGenericContainer(dockerImageName: String) : GenericContainer<KGenericContainer>(dockerImageName) {
     companion object {
-        private const val REDIS_IMAGE = "redis:5.0.6"
+        private val REDIS_IMAGE = "redis:${System.getenv("REDIS_VERSION")}"
         const val REDIS_PORT = 6379
         fun createRedisContainer(network: Network): KGenericContainer =
-            KGenericContainer(
-                REDIS_IMAGE
-            ).withExposedPorts(REDIS_PORT).withNetwork(network)
+            KGenericContainer(REDIS_IMAGE).withExposedPorts(REDIS_PORT).withNetwork(network)
     }
 }

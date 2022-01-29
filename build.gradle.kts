@@ -114,10 +114,20 @@ tasks {
         kotlinOptions.freeCompilerArgs += listOf("-Xuse-experimental=kotlin.contracts.ExperimentalContracts", "-Xinline-classes")
     }
     withType<Test> {
+        maxParallelForks = 1
         useJUnitPlatform()
         systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
-        environment("AWS_REGION" to findProperty("AWS_REGION"), "AWS_PROFILE" to findProperty("AWS_PROFILE"))
+        environment("AWS_REGION" to findProperty("AWS_REGION"), "AWS_PROFILE" to findProperty("AWS_PROFILE"), "REDIS_VERSION" to "5")
     }
+
+    val redis6Test by registering(Test::class) {
+        maxParallelForks = 1
+        useJUnitPlatform()
+        systemProperties["vertx.logger-delegate-factory-class-name"] = "io.vertx.core.logging.SLF4JLogDelegateFactory"
+        environment("AWS_REGION" to findProperty("AWS_REGION"), "AWS_PROFILE" to findProperty("AWS_PROFILE"), "REDIS_VERSION" to "6")
+    }
+
+    build.get().dependsOn.add(redis6Test)
 }
 
 val publicationName = "VKCO"

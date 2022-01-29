@@ -13,6 +13,7 @@ import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Redis
 import io.vertx.redis.client.Request
+import io.vertx.redis.client.impl.types.MultiType
 import kotlinx.coroutines.launch
 import mu.KLogging
 
@@ -122,13 +123,22 @@ internal class RedisNodeScoreVerticle : CoroutineVerticle(), NodeScoreService {
 
     private suspend fun getStoredNodeScores(): List<NodeScoreDto> {
         val nodeScores = ArrayList<NodeScoreDto>()
-        val actualNodeScoresResponse =
+        val nodeScoresResponse =
             redis.send(Request.cmd(Command.ZRANGE).arg(nodeStateScoreSetName).arg(0).arg(-1).arg("WITHSCORES")).await()
-        val actualNodeScoresIter = actualNodeScoresResponse.iterator()
-        while (actualNodeScoresIter.hasNext()) {
-            val nodeId = actualNodeScoresIter.next().toString()
-            val score = actualNodeScoresIter.next().toInteger()
-            nodeScores.add(NodeScoreDto(OrchestraClusterNodeId.of(nodeId), score))
+        val nodeScoresResponseIter = nodeScoresResponse.iterator()
+        while (nodeScoresResponseIter.hasNext()) {
+            val leadEntry = nodeScoresResponseIter.next()
+            // Redis 6 support
+            if (leadEntry is MultiType) {
+                val nodeId = leadEntry.first().toString()
+                val score = leadEntry.last().toDouble().toInt()
+                nodeScores.add(NodeScoreDto(OrchestraClusterNodeId.of(nodeId), score))
+            // Redis 5 support
+            } else {
+                val nodeId = leadEntry.toString()
+                val score = nodeScoresResponseIter.next().toDouble().toInt()
+                nodeScores.add(NodeScoreDto(OrchestraClusterNodeId.of(nodeId), score))
+            }
         }
         return nodeScores
     }
