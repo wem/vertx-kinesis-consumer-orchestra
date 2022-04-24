@@ -9,12 +9,12 @@ import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.NodeSco
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.StopConsumersCmdResult
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallLight
 import ch.sourcemotion.vertx.redis.client.heimdall.RedisHeimdallOptions
-import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import io.vertx.kotlin.coroutines.await
 import io.vertx.redis.client.Command
 import io.vertx.redis.client.Request
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import mu.KLogging
 
@@ -27,17 +27,21 @@ internal class BalancingVerticle : CoroutineVerticle() {
     private var balancingTimerId: Long? = null
 
     private lateinit var options: Options
+    private lateinit var clusterName: String
     private lateinit var redis: RedisHeimdallLight
     private lateinit var balancingNodeCommunication: BalancingNodeCommunication
     private lateinit var nodeScoreService: NodeScoreService
     private lateinit var consumerControlService: ConsumerControlService
     private lateinit var consumableShardDetectionService: ConsumableShardDetectionService
 
-    private var reBalancingInProgress = false
-    private var firstConsumerStart = true
+    private lateinit var activeBalancerRedisKey: String
+
+    private var balancingJob: Job? = null
 
     override suspend fun start() {
         options = config.mapTo(Options::class.java)
+        clusterName = options.clusterNodeId.clusterName
+        activeBalancerRedisKey = "${options.clusterNodeId.clusterName}-balancer"
         redis = RedisHeimdallLight(vertx, options.redisOptions)
         balancingNodeCommunication = RedisBalancingNodeCommunication(
             vertx,
@@ -58,9 +62,25 @@ internal class BalancingVerticle : CoroutineVerticle() {
 
     override suspend fun stop() {
         balancingTimerId?.let { vertx.cancelTimer(it) }
+        // If a balancing job is in progress we will wait until it's finished.
+        // It's important that we wait before we release active balancer role, otherwise there could be 2 concurrent active balancer (jobs)
+        runCatching { balancingJob?.join() }
+
         activeBalancerRefreshTimerId?.let { vertx.cancelTimer(it) }
-        releaseThisActiveBalancer().await()
-        logger.info { "Balancer of node ${options.clusterNodeId} stopped" }
+
+        if (activeBalancer) {
+            try {
+                if (!releaseActiveBalancerRole().await()) {
+                    logger.warn { "Unable to release active balancer role flag" }
+                }
+            } catch (e: Exception) {
+                logger.warn { "Failed to release active balancer role flag. Expiration will remove it." }
+            }
+        }
+
+        if (activeBalancer) {
+            logger.info { "Active balancer of node ${options.clusterNodeId} stopped" }
+        } else logger.info { "Balancer of node ${options.clusterNodeId} stopped" }
     }
 
     private fun onStopConsumerBalancingCmd(consumerCount: Int): Future<StopConsumersCmdResult> {
@@ -73,10 +93,10 @@ internal class BalancingVerticle : CoroutineVerticle() {
 
     private fun activeBalancerHandling() {
         activeBalancerRefreshTimerId = vertx.setPeriodic(options.activeBalancerCheckIntervalMillis) {
-            tryBecomeOrKeepActiveBalancer(activeBalancer).onSuccess { isNowActiveBalancer ->
+            tryBecomeOrKeepActiveBalancerRole().onSuccess { isNowActiveBalancer ->
                 // Became new active?
                 if (!activeBalancer && isNowActiveBalancer) {
-                    logger.info { "Became active balancer: ${options.clusterNodeId} on cluster ${options.clusterNodeId.clusterName}" }
+                    logger.info { "Became active balancer: ${options.clusterNodeId} on cluster $clusterName" }
                     // If we became active, we will wait for a while before we start balancing, so we give
                     // Other node a bit time for bootstrap
                     vertx.setTimer(options.initialBalancingDelayMillis) {
@@ -84,7 +104,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
                     }
                 }
                 if (activeBalancer && !isNowActiveBalancer) {
-                    logger.warn { "Lost active balancer state. Will stop balancing: ${options.clusterNodeId} on cluster ${options.clusterNodeId.clusterName}" }
+                    logger.warn { "Lost active balancer role. Will stop balancing: ${options.clusterNodeId} on cluster $clusterName" }
                     balancingTimerId?.let { vertx.cancelTimer(it) }
                 }
                 activeBalancer = isNowActiveBalancer
@@ -93,9 +113,8 @@ internal class BalancingVerticle : CoroutineVerticle() {
     }
 
     private fun executeBalancing(@Suppress("UNUSED_PARAMETER") timerId: Long) {
-        if (reBalancingInProgress || !activeBalancer) return
-        launch {
-            reBalancingInProgress = true
+        if (balancingJob != null || !activeBalancer) return
+        balancingJob = launch {
             val nodeScores = nodeScoreService.getNodeScores().await()
             val consumableShardIds = consumableShardDetectionService.getConsumableShards().await()
             val reBalancingCalcResult =
@@ -104,7 +123,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
                 )
 
             if (reBalancingCalcResult.needsReBalancing()) {
-                logger.info { "Initiate re-balancing because of node scores $nodeScores and / or consumable shards $consumableShardIds on cluster ${options.clusterNodeId.clusterName}" }
+                logger.info { "Initiate re-balancing because of node scores $nodeScores and / or consumable shards $consumableShardIds on cluster $clusterName" }
                 // Filter nodes their score is enough high so on them no re-balancing will happen
                 val pendingReBalancingNodeInfos =
                     reBalancingCalcResult.reBalancingNodeInfos.filterNot { it.noActionOnNode() }
@@ -115,34 +134,39 @@ internal class BalancingVerticle : CoroutineVerticle() {
                 // Available shards are the stopped ones on nodes and the additional, consumable
                 val stoppedShardIds = pendingConsumerStopJobs.map { it.await() }.map { it.stoppedShardIds }.flatten()
                 if (stoppedShardIds.isNotEmpty()) {
-                    logger.info { "Stopped shards $stoppedShardIds during re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+                    logger.info { "Stopped shards $stoppedShardIds during re-balancing on cluster $clusterName" }
                 }
                 val availableShardIds = (stoppedShardIds + consumableShardIds).toMutableList()
 
                 val nodesToStartConsumersOn = pendingReBalancingNodeInfos.filter { it.nodeShouldStartConsumers() }
-                val pendingConsumerStartJobs =
+                val pendingConsumerStartJobsAndInfo =
                     startConsumersOnNodes(nodesToStartConsumersOn, availableShardIds)
-                CompositeFuture.all(pendingConsumerStartJobs).await()
+                pendingConsumerStartJobsAndInfo.forEach { jobAndInfo ->
+                    runCatching { jobAndInfo.first.await() }
+                        .onFailure { cause -> logger.warn(cause) { "Start consumers for shards ${jobAndInfo.third} on node ${jobAndInfo.second.nodeId} / cluster $clusterName did fail" } }
+                }
 
                 if (availableShardIds.isNotEmpty()) {
-                    logger.warn { "There are available shards left after re-balancing $availableShardIds on cluster ${options.clusterNodeId.clusterName}" }
+                    logger.warn { "There are available shards left after re-balancing $availableShardIds on cluster $clusterName" }
                 }
                 logger.info { "Re-balancing done on cluster ${options.clusterNodeId.clusterName}" }
             }
-        }.invokeOnCompletion { failure ->
-            reBalancingInProgress = false
-            if (failure != null) {
-                logger.warn(failure) { "Re-balancing failed" }
+        }.also {
+            it.invokeOnCompletion { failure ->
+                balancingJob = null
+                if (failure != null) {
+                    logger.warn(failure) { "Re-balancing failed" }
+                }
             }
         }
     }
 
-    private suspend fun startConsumersOnNodes(
+    private fun startConsumersOnNodes(
         nodesToStartConsumersOn: List<ReBalancingNodeInfo>,
         availableShardIds: MutableList<ShardId>
-    ) = nodesToStartConsumersOn.mapIndexed { idx, reBalancingNodeInfo ->
+    ) = nodesToStartConsumersOn.map { reBalancingNodeInfo ->
         val shardIdsToStart = availableShardIds.takeAndRemove(reBalancingNodeInfo.adjustment)
-        logger.info { "Will start consumers for $shardIdsToStart on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+        logger.info { "Will start consumers for $shardIdsToStart on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster $clusterName" }
 
         // This node instance?
         val future = if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
@@ -151,21 +175,14 @@ internal class BalancingVerticle : CoroutineVerticle() {
         } else {
             balancingNodeCommunication.sendStartConsumersCmd(reBalancingNodeInfo.nodeId, shardIdsToStart)
         }
-        // If it's the first balancing where consumer are started, we wait until the first node is done.
-        // This because otherwise and in the case of the enhanced fan out parallel consumer registration could happen
-        // which could probably fail
-        if (firstConsumerStart && idx == 0) {
-            future.await()
-            firstConsumerStart = false
-        }
-        future
+        Triple(future, reBalancingNodeInfo, shardIdsToStart)
     }
 
     private fun stopConsumersOnNodes(nodeToStopConsumersOn: List<ReBalancingNodeInfo>) =
         nodeToStopConsumersOn.map { reBalancingNodeInfo ->
             val consumerCountToStop =
                 reBalancingNodeInfo.adjustment * -1 // Negative adjustment means consumer have to get stopped on that node
-            logger.info { "Will stop $consumerCountToStop consumers on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster ${options.clusterNodeId.clusterName}" }
+            logger.info { "Will stop $consumerCountToStop consumers on node ${reBalancingNodeInfo.nodeId} for re-balancing on cluster $clusterName" }
             // This node instance?
             if (reBalancingNodeInfo.nodeId == options.clusterNodeId) {
                 // We should not call consumer control directly, so node state get also updated
@@ -175,20 +192,20 @@ internal class BalancingVerticle : CoroutineVerticle() {
             }
         }
 
-    private fun tryBecomeOrKeepActiveBalancer(alreadyActiveBalancer: Boolean): Future<Boolean> {
+    private fun tryBecomeOrKeepActiveBalancerRole(): Future<Boolean> {
         val cmd = Request.cmd(Command.SET).apply {
-            arg("${options.clusterNodeId.clusterName}-balancer").arg("${options.clusterNodeId}")
+            arg(activeBalancerRedisKey).arg("${options.clusterNodeId}")
                 .arg("PX").arg(options.activeBalancerCheckIntervalMillis * 3)
             // If this node is not the active we set only if not set
-            if (!alreadyActiveBalancer) {
+            if (!activeBalancer) {
                 arg("NX")
             }
         }
         return redis.send(cmd).compose { Future.succeededFuture(it.okResponseAsBoolean()) }
     }
 
-    private fun releaseThisActiveBalancer(): Future<Boolean> {
-        val cmd = Request.cmd(Command.DEL).arg("${options.clusterNodeId.clusterName}-balancer")
+    private fun releaseActiveBalancerRole(): Future<Boolean> {
+        val cmd = Request.cmd(Command.DEL).arg(activeBalancerRedisKey)
         return redis.send(cmd).compose { Future.succeededFuture(it.toInteger() == 1) }
     }
 
