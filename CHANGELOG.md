@@ -133,4 +133,11 @@ Add node scoring tests for cleanup unhealthy nodes.
 
 ## [2.2.0]
 ### Improvement
-Redis 6 support. Additional Gradle test task for Redis 6. 
+Redis 6 support. Additional Gradle test task for Redis 6.
+
+## [2.2.1]
+### Fixed
+#### Balancing
+- Only active balancer verticle (node) will remove the active balancer on shutdown from now.
+- Introduction of cluster wide flag on active balancing job (in progress).
+- Fix incorrect balancing verticle configuration.
