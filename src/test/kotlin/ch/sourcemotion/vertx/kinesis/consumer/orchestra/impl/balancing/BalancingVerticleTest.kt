@@ -3,12 +3,17 @@ package ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.balancing
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.OrchestraClusterNodeId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ShardId
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.cluster.RedisNodeScoreVerticle
+import ch.sourcemotion.vertx.kinesis.consumer.orchestra.impl.ext.okResponseAsBoolean
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.internal.service.*
 import ch.sourcemotion.vertx.kinesis.consumer.orchestra.testing.AbstractRedisTest
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.collections.*
+import io.kotest.matchers.longs.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.vertx.core.CompositeFuture
 import io.vertx.core.Future
+import io.vertx.core.Promise
 import io.vertx.core.Vertx
 import io.vertx.core.json.JsonObject
 import io.vertx.junit5.VertxTestContext
@@ -56,7 +61,7 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
         deployBalancingVerticle(passiveOptions)
 
         repeat(5) {
-            verifyActiveNode(activeOptions.clusterNodeId)
+            verifyActiveBalancerNode(activeOptions.clusterNodeId)
             delay(DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS)
         }
 
@@ -67,7 +72,7 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
         delay(DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS * 2)
 
         repeat(5) {
-            verifyActiveNode(passiveOptions.clusterNodeId)
+            verifyActiveBalancerNode(passiveOptions.clusterNodeId)
             delay(DEFAULT_ACTIVE_BALANCER_CHECK_INTERVAL_MILLIS)
         }
     }
@@ -316,6 +321,70 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
             .shouldContain(2)
     }
 
+    @Test
+    internal fun stop_during_balancing(testContext: VertxTestContext) = testContext.async(1) { checkpoint ->
+        val sharedConsumableShardDetection = SharedConsumableShardDetectionService(listOf(ShardId("0")))
+        val startDelay = 1000L
+        var started = false
+        var startInProgressCallback: (() -> Unit)? = null
+
+        // Will called when consumer control verticle has received command to start consumers
+        val startConsumerCmdInterceptor: (Vertx) -> Future<Void> = {
+            startInProgressCallback?.invoke()
+            val p = Promise.promise<Void>()
+            vertx.setTimer(startDelay) {
+                started = true
+                p.complete()
+            }
+            p.future()
+        }
+
+        val nodeInstanceInfo = deployNodeInstances(1, CLUSTER_NAME, sharedConsumableShardDetection, startConsumersInterceptor = startConsumerCmdInterceptor).first()
+
+        // Called by interceptor above. So we can stop the whole Vert.x instance during start (balancing) process.
+        startInProgressCallback = {
+            val startProgressStart = System.currentTimeMillis()
+            testContext.verify { started.shouldBeFalse() }
+            nodeInstanceInfo.vertxInstance.close().onSuccess {
+                val vertxClosedEnd = System.currentTimeMillis()
+                testContext.verify {
+                    started.shouldBeTrue()
+                    (vertxClosedEnd - startProgressStart).shouldBeGreaterThan(startDelay)
+                }
+                checkpoint.flag()
+            }.onFailure { cause -> testContext.failNow(cause) }
+        }
+    }
+
+    @Test
+    internal fun remote_active_balancer_job(testContext: VertxTestContext) = testContext.async(2) { checkpoint ->
+        val sharedConsumableShardDetection = SharedConsumableShardDetectionService(listOf(ShardId("0")))
+        // We flag from start on that another node has active balancing job (e.g. deployment edge case)
+        var balancingActiveOnRemoteNode = true
+
+        var nodeId: OrchestraClusterNodeId? = null
+
+        val nodeInstanceInfo = deployNodeInstances(1, CLUSTER_NAME, sharedConsumableShardDetection) {
+            // Called when this node has active balancer job and consumer control received start consumer command
+            // The remote node balancing job must be done before
+            testContext.verify { balancingActiveOnRemoteNode.shouldBeFalse() }
+            verifyClusterWideActiveBalancingJobFlag(nodeId!!, testContext).compose {
+                checkpoint.flag()
+                Future.succeededFuture()
+            }
+        }.first().also { nodeId = it.nodeId }
+
+
+        // Obtain active balancing job, wait some balancing check intervals and unset flag, so test node can start balancing
+        setClusterWideActiveBalancingJobFlag(nodeInstanceInfo.nodeId, testContext).await()
+        delay((DEFAULT_INITIAL_BALANCING_DELAY_MILLIS + DEFAULT_BALANCING_INTERVAL_MILLIS) * 2)
+        balancingActiveOnRemoteNode = false
+        unsetClusterWideActiveBalancingJobFlag(nodeInstanceInfo.nodeId, testContext).await()
+        // We stop consumer to enforce balancing twice
+        delay(DEFAULT_BALANCING_INTERVAL_MILLIS * 2)
+        nodeInstanceInfo.consumerControlService.stopConsumers(1)
+    }
+
     private fun startVertxInstances(expectedNodeCount: Int): List<Vertx> {
         return IntRange(1, expectedNodeCount).map { Vertx.vertx().also { additionalVertxInstances.add(it) } }
     }
@@ -323,26 +392,27 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
     private suspend fun deployNodeInstances(
         expectedInstances: Int,
         clusterName: String,
-        sharedConsumableShardDetection: SharedConsumableShardDetectionService
+        sharedConsumableShardDetection: SharedConsumableShardDetectionService,
+        startConsumersInterceptor: ((Vertx) -> Future<Void>)? = null
     ) = (startVertxInstances(expectedInstances)).map { additionalVertx ->
         val nodeId = OrchestraClusterNodeId(clusterName, "${UUID.randomUUID()}")
         val verticleOptions = verticleOptionsOf(nodeId)
 
         val nodeScoreService = deployNodeStateService(nodeId, additionalVertx)
 
-        val consumerControlService = TestConsumerControlService(sharedConsumableShardDetection, nodeScoreService)
-        ConsumerControlService.exposeService(
-            additionalVertx,
-            consumerControlService
-        )
+        val consumerControlService =
+            TestConsumerControlService(
+                additionalVertx,
+                sharedConsumableShardDetection,
+                nodeScoreService,
+                startConsumersInterceptor
+            )
 
-        ConsumableShardDetectionService.exposeService(
-            additionalVertx,
-            sharedConsumableShardDetection
-        )
+        ConsumerControlService.exposeService(additionalVertx, consumerControlService)
+        ConsumableShardDetectionService.exposeService(additionalVertx, sharedConsumableShardDetection)
 
-        deployBalancingVerticle(verticleOptions, additionalVertx)
-        TestNodeInstanceInfo(nodeId, additionalVertx, consumerControlService)
+        val balancingVerticleDeploymentId = deployBalancingVerticle(verticleOptions, additionalVertx)
+        TestNodeInstanceInfo(nodeId, additionalVertx, consumerControlService, balancingVerticleDeploymentId)
     }.toMutableList()
 
     private suspend fun deployBalancingVerticle(options: BalancingVerticle.Options, vertx: Vertx = this.vertx): String {
@@ -362,9 +432,42 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
         return NodeScoreService.createService(vertx)
     }
 
-    private suspend fun verifyActiveNode(nodeId: OrchestraClusterNodeId) {
+    private suspend fun verifyActiveBalancerNode(nodeId: OrchestraClusterNodeId) {
         redisClient.send(Request.cmd(Command.GET).arg("${nodeId.clusterName}-balancer")).await()
             .toString().shouldBe("$nodeId")
+    }
+
+    private fun setClusterWideActiveBalancingJobFlag(nodeId: OrchestraClusterNodeId, testContext: VertxTestContext): Future<Boolean> {
+        val cmd = Request.cmd(Command.SET).apply {
+            arg("${nodeId.clusterName}-balancing-job-active").arg("$nodeId").arg("NX")
+        }
+        return redisClient.send(cmd).compose {
+            val successful = it.okResponseAsBoolean()
+            testContext.verify { successful.shouldBeTrue() }
+            Future.succeededFuture(successful)
+        }
+    }
+
+    private fun verifyClusterWideActiveBalancingJobFlag(nodeId: OrchestraClusterNodeId, testContext: VertxTestContext): Future<Boolean> {
+        val cmd = Request.cmd(Command.GET).apply {
+            arg("${nodeId.clusterName}-balancing-job-active")
+        }
+        return redisClient.send(cmd).compose {
+            val successful = it.toString() == "$nodeId"
+            testContext.verify { successful.shouldBeTrue() }
+            Future.succeededFuture(successful)
+        }
+    }
+
+    private fun unsetClusterWideActiveBalancingJobFlag(nodeId: OrchestraClusterNodeId, testContext: VertxTestContext): Future<Boolean> {
+        val cmd = Request.cmd(Command.DEL).apply {
+            arg("${nodeId.clusterName}-balancing-job-active")
+        }
+        return redisClient.send(cmd).compose {
+            val successful = it.toInteger() == 1
+            testContext.verify { successful.shouldBeTrue() }
+            Future.succeededFuture(successful)
+        }
     }
 
     private fun verticleOptionsOf(
@@ -386,7 +489,8 @@ internal class BalancingVerticleTest : AbstractRedisTest() {
 private data class TestNodeInstanceInfo(
     val nodeId: OrchestraClusterNodeId,
     val vertxInstance: Vertx,
-    val consumerControlService: TestConsumerControlService
+    val consumerControlService: TestConsumerControlService,
+    val balancerDeploymentId: String
 )
 
 private class SharedConsumableShardDetectionService(allShardIds: List<ShardId>) : ConsumableShardDetectionService {
@@ -406,8 +510,10 @@ private class SharedConsumableShardDetectionService(allShardIds: List<ShardId>) 
 }
 
 private class TestConsumerControlService(
+    private val vertx: Vertx,
     private val consumableDetection: SharedConsumableShardDetectionService,
-    private val nodeScoreService: NodeScoreService
+    private val nodeScoreService: NodeScoreService,
+    private val startConsumersInterceptor: ((Vertx) -> Future<Void>)? = null
 ) : ConsumerControlService {
     val activeConsumedShards = ArrayList<ShardId>()
 
@@ -424,7 +530,12 @@ private class TestConsumerControlService(
         activeConsumedShards.addAll(shardIds)
         consumableDetection.nowConsumed(shardIds)
         return nodeScoreService.setThisNodeScore(activeConsumedShards.size)
-            .compose { Future.succeededFuture(activeConsumedShards.size) }
+            .compose {
+                if (startConsumersInterceptor != null) {
+                    startConsumersInterceptor.invoke(vertx)
+                        .compose { Future.succeededFuture(activeConsumedShards.size) }
+                } else Future.succeededFuture(activeConsumedShards.size)
+            }
     }
 }
 

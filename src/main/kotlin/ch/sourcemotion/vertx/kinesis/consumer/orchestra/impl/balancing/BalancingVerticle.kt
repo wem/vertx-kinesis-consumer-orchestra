@@ -35,6 +35,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
     private lateinit var consumableShardDetectionService: ConsumableShardDetectionService
 
     private lateinit var activeBalancerRedisKey: String
+    private lateinit var activeBalancingJobRedisKey: String
 
     private var balancingJob: Job? = null
 
@@ -42,6 +43,7 @@ internal class BalancingVerticle : CoroutineVerticle() {
         options = config.mapTo(Options::class.java)
         clusterName = options.clusterNodeId.clusterName
         activeBalancerRedisKey = "${options.clusterNodeId.clusterName}-balancer"
+        activeBalancingJobRedisKey = "${options.clusterNodeId.clusterName}-balancing-job-active"
         redis = RedisHeimdallLight(vertx, options.redisOptions)
         balancingNodeCommunication = RedisBalancingNodeCommunication(
             vertx,
@@ -71,10 +73,10 @@ internal class BalancingVerticle : CoroutineVerticle() {
         if (activeBalancer) {
             try {
                 if (!releaseActiveBalancerRole().await()) {
-                    logger.warn { "Unable to release active balancer role flag" }
+                    logger.warn { "Unable to release active balancer role flag on node ${options.clusterNodeId}" }
                 }
             } catch (e: Exception) {
-                logger.warn { "Failed to release active balancer role flag. Expiration will remove it." }
+                logger.warn { "Failed to release active balancer role flag. Expiration will remove it" }
             }
         }
 
@@ -114,7 +116,13 @@ internal class BalancingVerticle : CoroutineVerticle() {
 
     private fun executeBalancing(@Suppress("UNUSED_PARAMETER") timerId: Long) {
         if (balancingJob != null || !activeBalancer) return
+        var activeBalancingJobFlagObtained = false
         balancingJob = launch {
+            activeBalancingJobFlagObtained = tryFlagActiveBalancingJobClusterWide().await()
+            if (!activeBalancingJobFlagObtained) {
+                logger.info { "Another balancing job active on cluster $clusterName. Will skip this round" }
+                return@launch
+            }
             val nodeScores = nodeScoreService.getNodeScores().await()
             val consumableShardIds = consumableShardDetectionService.getConsumableShards().await()
             val reBalancingCalcResult =
@@ -153,6 +161,11 @@ internal class BalancingVerticle : CoroutineVerticle() {
             }
         }.also {
             it.invokeOnCompletion { failure ->
+                if (activeBalancingJobFlagObtained) {
+                    removeClusterWideActiveBalancingJobFlag()
+                        .onSuccess { removed -> if(!removed) logger.info { "Unable to remove active balancer job flag" } }
+                        .onFailure { cause -> logger.info(cause) { "Failed to remove active balancer job flag" } }
+                }
                 balancingJob = null
                 if (failure != null) {
                     logger.warn(failure) { "Re-balancing failed" }
@@ -207,6 +220,22 @@ internal class BalancingVerticle : CoroutineVerticle() {
     private fun releaseActiveBalancerRole(): Future<Boolean> {
         val cmd = Request.cmd(Command.DEL).arg(activeBalancerRedisKey)
         return redis.send(cmd).compose { Future.succeededFuture(it.toInteger() == 1) }
+    }
+
+    private fun tryFlagActiveBalancingJobClusterWide(): Future<Boolean> {
+        val cmd = Request.cmd(Command.SET).apply {
+            arg(activeBalancingJobRedisKey).arg("${options.clusterNodeId}")
+                .arg("PX").arg(options.balancingCommandTimeoutMillis).arg("NX")
+        }
+        return redis.send(cmd).compose { Future.succeededFuture(it.okResponseAsBoolean()) }
+    }
+
+    private fun removeClusterWideActiveBalancingJobFlag(): Future<Boolean> {
+        val cmd = Request.cmd(Command.DEL).arg(activeBalancingJobRedisKey)
+        return redis.send(cmd).compose {
+            val removedKeys = it.toInteger()
+            Future.succeededFuture(removedKeys == 1)
+        }
     }
 
     internal data class Options(
