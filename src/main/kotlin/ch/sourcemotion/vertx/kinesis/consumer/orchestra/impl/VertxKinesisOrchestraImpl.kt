@@ -140,7 +140,7 @@ internal class VertxKinesisOrchestraImpl(
             BalancingVerticle.Options(
                 clusterNodeId,
                 options.redisOptions,
-                balancingOptions.nodeKeepAliveMillis,
+                balancingOptions.activeBalancerCheckIntervalMillis,
                 balancingOptions.initialBalancingDelayMillis,
                 balancingOptions.balancingIntervalMillis,
                 balancingOptions.balancingCommandTimeoutMillis
