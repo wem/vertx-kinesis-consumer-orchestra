@@ -59,6 +59,7 @@ dependencies {
     testImplementation("org.testcontainers:localstack", JacksonExclusion)
     testImplementation("org.testcontainers:toxiproxy", JacksonExclusion)
     testImplementation("com.amazonaws:aws-java-sdk-core:${libVersion("awssdk-old")}", NettyExclusion)
+    testImplementation(awsSdk("sso"), JacksonExclusion)
 }
 
 object AwsSdkExclusion : DependencyExclusion(
