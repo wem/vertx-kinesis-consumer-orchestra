@@ -79,7 +79,6 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
     private suspend fun startConsumer() {
         logger.debug { "Try to start consumer on $consumerInfo" }
 
-        shardStatePersistence.flagShardInProgress(options.shardId)
         startShardInProgressKeepAlive()
 
         val startFetchPosition = runCatching {
@@ -116,7 +115,8 @@ abstract class AbstractKinesisConsumerVerticle : CoroutineVerticle() {
         logger.info { "Kinesis consumer verticle started on \"$consumerInfo\"" }
     }
 
-    private fun startShardInProgressKeepAlive() {
+    private suspend fun startShardInProgressKeepAlive() {
+        shardStatePersistence.flagShardInProgress(options.shardId)
         inProgressJobId = vertx.setPeriodic(options.shardProgressExpirationMillis / 3) {
             if (running) {
                 launch {
