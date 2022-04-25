@@ -35,6 +35,7 @@ internal abstract class AbstractMultiNodeComponentTest : AbstractKinesisAndRedis
         CompositeFuture.all(nodeVertxInstances.map { it.close() }).await()
     }
 
+    @Timeout(value = 1, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun consume_some_records(testContext: VertxTestContext) {
         val nodeCount = 8
@@ -168,7 +169,7 @@ internal abstract class AbstractMultiNodeComponentTest : AbstractKinesisAndRedis
     /**
      * Test for the scenario where any node get replaced.
      */
-    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 4, timeUnit = TimeUnit.MINUTES)
     @Test
     internal fun redeployment_scenario(testContext: VertxTestContext) {
         val nodeCount = 8
